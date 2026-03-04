@@ -1,0 +1,269 @@
+{
+  "name": "02 - OCR Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ocr-process",
+        "responseMode": "responseNode"
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Webhook - OCR Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "ocr-process"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://app.nanonets.com/api/v2/Inferences/Model/{{ $env.NANONETS_MODEL_ID }}/PredictionFile",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "value": "data:application/pdf;base64,{{ $binary.attachment_0.data }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "b2c3d4e5-f6a7-8901-bcde-f23456789012",
+      "name": "Nanonets OCR API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "nanonets-api-key",
+          "name": "Nanonets API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Nanonets OCR response\nconst ocrResult = $input.all()[0].json;\n\nif (!ocrResult.message || ocrResult.message !== 'Success') {\n  return [{\n    json: {\n      error: 'OCR processing failed',\n      details: ocrResult\n    }\n  }];\n}\n\n// Extract invoice data from prediction\nconst prediction = ocrResult.prediction;\nconst extractedData = {\n  vendorName: '',\n  vendorAddress: '',\n  invoiceNumber: '',\n  invoiceDate: '',\n  dueDate: '',\n  totalAmount: 0,\n  subtotal: 0,\n  tax: 0,\n  lineItems: [],\n  rawPrediction: prediction\n};\n\n// Map prediction fields\nfor (const field of prediction) {\n  const label = field.label;\n  const ocrText = field.ocr_text || field.value;\n  \n  switch(label) {\n    case 'vendor_name':\n    case 'VendorName':\n      extractedData.vendorName = ocrText;\n      break;\n    case 'vendor_address':\n      extractedData.vendorAddress = ocrText;\n      break;\n    case 'invoice_number':\n    case 'InvoiceNumber':\n      extractedData.invoiceNumber = ocrText;\n      break;\n    case 'invoice_date':\n    case 'InvoiceDate':\n      extractedData.invoiceDate = ocrText;\n      break;\n    case 'due_date':\n    case 'DueDate':\n      extractedData.dueDate = ocrText;\n      break;\n    case 'total_amount':\n    case 'TotalAmount':\n      extractedData.totalAmount = parseFloat(ocrText.replace(/[^0-9.]/g, ''));\n      break;\n    case 'subtotal':\n    case 'SubTotal':\n      extractedData.subtotal = parseFloat(ocrText.replace(/[^0-9.]/g, ''));\n      break;\n    case 'tax_amount':\n    case 'Tax':\n      extractedData.tax = parseFloat(ocrText.replace(/[^0-9.]/g, ''));\n      break;\n    case 'line_items':\n    case 'LineItems':\n      if (Array.isArray(ocrText)) {\n        extractedData.lineItems = ocrText.map(item => ({\n          description: item.description || item.name || '',\n          quantity: parseFloat(item.quantity || 1),\n          unitPrice: parseFloat((item.unit_price || item.price || '0').replace(/[^0-9.]/g, '')),\n          total: parseFloat((item.total || '0').replace(/[^0-9.]/g, ''))\n        }));\n      }\n      break;\n  }\n}\n\nreturn [{\n  json: {\n    emailId: $input.all()[0].json.emailId,\n    from: $input.all()[0].json.from,\n    subject: $input.all()[0].json.subject,\n    extracted: extractedData,\n    confidence: prediction.reduce((acc, f) => acc + (f.confidence || 0), 0) / prediction.length\n  }\n}];"
+      },
+      "id": "c3d4e5f6-a7b8-9012-cdef-345678901234",
+      "name": "Parse OCR Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "invoices",
+        "columns": {
+          "mapping": [
+            {
+              "column": "email_id",
+              "value": "={{ $json.emailId }}"
+            },
+            {
+              "column": "vendor_name",
+              "value": "={{ $json.extracted.vendorName }}"
+            },
+            {
+              "column": "vendor_email",
+              "value": "={{ $json.from }}"
+            },
+            {
+              "column": "invoice_number",
+              "value": "={{ $json.extracted.invoiceNumber }}"
+            },
+            {
+              "column": "invoice_date",
+              "value": "={{ $json.extracted.invoiceDate }}"
+            },
+            {
+              "column": "due_date",
+              "value": "={{ $json.extracted.dueDate }}"
+            },
+            {
+              "column": "subtotal",
+              "value": "={{ $json.extracted.subtotal }}"
+            },
+            {
+              "column": "tax_amount",
+              "value": "={{ $json.extracted.tax }}"
+            },
+            {
+              "column": "total_amount",
+              "value": "={{ $json.extracted.totalAmount }}"
+            },
+            {
+              "column": "line_items",
+              "value": "={{ JSON.stringify($json.extracted.lineItems) }}"
+            },
+            {
+              "column": "status",
+              "value": "pending_match"
+            },
+            {
+              "column": "ocr_confidence",
+              "value": "={{ $json.confidence }}"
+            },
+            {
+              "column": "created_at",
+              "value": "={{ $now }}"
+            }
+          ]
+        }
+      },
+      "id": "d4e5f6a7-b8c9-0123-defa-456789012345",
+      "name": "Save to Invoices DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [850, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-local",
+          "name": "Local Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "jsonPayload": "={{ JSON.stringify({ success: true, invoiceId: $json.id, message: \"Invoice processed and saved\" }) }}"
+      },
+      "id": "e5f6a7b8-c9d0-1234-efab-567890123456",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "f6a7b8c9-d0e1-2345-fabc-678901234567",
+      "name": "OCR Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 500]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL || '#procurement-alerts' }}",
+        "text": "❌ OCR Processing Failed",
+        "blocks": [
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "*Invoice OCR Failed*\n\nError: {{ $json.error }}\n\nEmail Subject: {{ $input.all()[0].json.subject }}\nFrom: {{ $input.all()[0].json.from }}\n\nManual review required."
+            }
+          }
+        ]
+      },
+      "id": "g7b8c9d0-e1f2-3456-abcd-789012345678",
+      "name": "Alert OCR Failure",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [850, 500],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-api",
+          "name": "Slack API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - OCR Request": {
+      "main": [
+        [
+          {
+            "node": "Nanonets OCR API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nanonets OCR API": {
+      "main": [
+        [
+          {
+            "node": "Parse OCR Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse OCR Results": {
+      "main": [
+        [
+          {
+            "node": "Save to Invoices DB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OCR Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Invoices DB": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Failed?": {
+      "main": [
+        [
+          {
+            "node": "Alert OCR Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [],
+  "pinData": {},
+  "versionId": "phase-1-workflow-02"
+}

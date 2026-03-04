@@ -1,0 +1,236 @@
+{
+  "name": "03 - Requisition Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "requisition",
+        "responseMode": "responseNode"
+      },
+      "id": "h1i2j3k4-l5m6-7890-nopq-r12345678901",
+      "name": "Webhook - Requisition",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "requisition"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate incoming requisition data\nconst req = $input.all()[0].json.body || $input.all()[0].json;\n\nconst required = ['department', 'item_name', 'quantity_requested', 'requester'];\nconst missing = required.filter(field => !req[field]);\n\nif (missing.length > 0) {\n  return [{\n    json: {\n      error: `Missing required fields: ${missing.join(', ')}`,\n      received: req\n    }\n  }];\n}\n\n// Validate quantity is positive number\nconst qty = parseFloat(req.quantity_requested);\nif (isNaN(qty) || qty <= 0) {\n  return [{\n    json: {\n      error: 'Quantity must be a positive number',\n      received: req.quantity_requested\n    }\n  }];\n}\n\n// Generate requisition ID\nconst reqId = `REQ-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;\n\nreturn [{\n  json: {\n    requisitionId: reqId,\n    department: req.department,\n    itemName: req.item_name,\n    sku: req.sku || null,\n    quantityRequested: qty,\n    urgency: req.urgency || 'routine',\n    dateNeeded: req.date_needed || null,\n    justification: req.justification || '',\n    requester: req.requester,\n    requesterEmail: req.requester_email || null,\n    submittedAt: new Date().toISOString(),\n    status: 'pending_validation'\n  }\n}];"
+      },
+      "id": "i2j3k4l5-m6n7-8901-opqr-s23456789012",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "requisitions",
+        "columns": {
+          "mapping": [
+            {
+              "column": "requisition_id",
+              "value": "={{ $json.requisitionId }}"
+            },
+            {
+              "column": "department",
+              "value": "={{ $json.department }}"
+            },
+            {
+              "column": "item_name",
+              "value": "={{ $json.itemName }}"
+            },
+            {
+              "column": "sku",
+              "value": "={{ $json.sku }}"
+            },
+            {
+              "column": "quantity_requested",
+              "value": "={{ $json.quantityRequested }}"
+            },
+            {
+              "column": "urgency",
+              "value": "={{ $json.urgency }}"
+            },
+            {
+              "column": "date_needed",
+              "value": "={{ $json.dateNeeded }}"
+            },
+            {
+              "column": "justification",
+              "value": "={{ $json.justification }}"
+            },
+            {
+              "column": "requester",
+              "value": "={{ $json.requester }}"
+            },
+            {
+              "column": "requester_email",
+              "value": "={{ $json.requesterEmail }}"
+            },
+            {
+              "column": "status",
+              "value": "={{ $json.status }}"
+            },
+            {
+              "column": "submitted_at",
+              "value": "={{ $json.submittedAt }}"
+            }
+          ]
+        }
+      },
+      "id": "j3k4l5m6-n7o8-9012-pqrs-t34567890123",
+      "name": "Save Requisition",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-local",
+          "name": "Local Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/ai-validate",
+        "body": {
+          "requisitionId": "={{ $json.requisitionId }}"
+        }
+      },
+      "id": "k4l5m6n7-o8p9-0123-qrst-u45678901234",
+      "name": "Trigger AI Validation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "jsonPayload": "={{ JSON.stringify({\n  success: true,\n  requisitionId: $json.requisitionId,\n  message: \"Requisition submitted successfully\",\n  status: \"pending_validation\"\n}) }}"
+      },
+      "id": "l5m6n7o8-p9q0-1234-rstu-v56789012345",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "m6n7o8p9-q0r1-2345-stuv-w67890123456",
+      "name": "Validation Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "options": {
+          "responseCode": 400
+        },
+        "jsonPayload": "={{ JSON.stringify({\n  success: false,\n  error: $json.error\n}) }}"
+      },
+      "id": "n7o8p9q0-r1s2-3456-tuvx-x78901234567",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 500]
+    }
+  ],
+  "connections": {
+    "Webhook - Requisition": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Save Requisition",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validation Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Requisition": {
+      "main": [
+        [
+          {
+            "node": "Trigger AI Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger AI Validation": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation Error?": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "pinData": {},
+  "versionId": "phase-1-workflow-03"
+}
