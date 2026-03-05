@@ -1,0 +1,274 @@
+{
+  "tableName": "Contract Tracker",
+  "description": "Tracks all vendor contracts with pricing terms, renewal dates, and auto-renewal flags. n8n checks daily for contracts approaching expiry at 90/60/30-day thresholds and triggers alerts (Blueprint 5G). OpenClaw drafts renewal proposals at 60 days with recommended pricing adjustments.",
+  "fields": [
+    {
+      "name": "Contract ID",
+      "type": "singleLineText",
+      "description": "Unique contract identifier.",
+      "required": true,
+      "example": "CTR-2026-001"
+    },
+    {
+      "name": "Contract Name",
+      "type": "singleLineText",
+      "description": "Descriptive name for the contract.",
+      "required": true,
+      "example": "Sysco Foods - 2026 Annual Food Supply Agreement"
+    },
+    {
+      "name": "Vendor",
+      "type": "linkedRecord",
+      "description": "Link to the vendor in the Vendor Master table.",
+      "required": true,
+      "options": {
+        "linkedTableName": "Vendor Master",
+        "prefersSingleRecordLink": true,
+        "inverseLinkFieldName": "Contracts"
+      }
+    },
+    {
+      "name": "Status",
+      "type": "singleSelect",
+      "description": "Current contract lifecycle status.",
+      "required": true,
+      "options": {
+        "choices": [
+          { "name": "Draft", "color": "grayLight2" },
+          { "name": "Pending Approval", "color": "yellowLight2" },
+          { "name": "Active", "color": "greenLight2" },
+          { "name": "Expiring Soon", "color": "orangeLight2" },
+          { "name": "Renewal Pending", "color": "blueLight2" },
+          { "name": "Expired", "color": "redLight2" },
+          { "name": "Terminated", "color": "redDark1" }
+        ]
+      },
+      "defaultValue": "Draft"
+    },
+    {
+      "name": "Contract Type",
+      "type": "singleSelect",
+      "description": "Type of contract agreement.",
+      "required": true,
+      "options": {
+        "choices": [
+          { "name": "Annual Supply Agreement" },
+          { "name": "Quarterly Agreement" },
+          { "name": "Spot Buy" },
+          { "name": "Master Service Agreement" },
+          { "name": "Blanket PO" },
+          { "name": "Capital Purchase" }
+        ]
+      }
+    },
+    {
+      "name": "Category",
+      "type": "multipleSelects",
+      "description": "Product/service categories covered by this contract.",
+      "required": false,
+      "options": {
+        "choices": [
+          { "name": "Food - Produce" },
+          { "name": "Food - Protein" },
+          { "name": "Food - Dairy" },
+          { "name": "Food - Dry Goods" },
+          { "name": "Food - Bakery" },
+          { "name": "Food - Seafood" },
+          { "name": "Food - Frozen" },
+          { "name": "Beverage - Alcoholic" },
+          { "name": "Beverage - Non-Alcoholic" },
+          { "name": "Guest Room Supplies" },
+          { "name": "Housekeeping Chemicals" },
+          { "name": "Linens & Uniforms" },
+          { "name": "Maintenance & Repair" },
+          { "name": "Office Supplies" },
+          { "name": "Spa Products" },
+          { "name": "Capital Equipment" }
+        ]
+      }
+    },
+    {
+      "name": "Start Date",
+      "type": "date",
+      "description": "Contract effective start date.",
+      "required": true,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "End Date",
+      "type": "date",
+      "description": "Contract expiration date. n8n monitors this for 90/60/30-day alerts.",
+      "required": true,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Auto Renewal",
+      "type": "checkbox",
+      "description": "Whether the contract auto-renews unless cancelled.",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Renewal Notice Days",
+      "type": "number",
+      "description": "Number of days before expiry that cancellation/non-renewal notice must be given.",
+      "required": false,
+      "options": { "precision": 0 },
+      "defaultValue": 30
+    },
+    {
+      "name": "Pricing Terms",
+      "type": "multilineText",
+      "description": "JSON object containing contracted pricing details by SKU. Cross-referenced by n8n for price verification on every PO line item (Blueprint 5B). Format: {\"items\": [{\"sku\": \"CHK-BRS-001\", \"description\": \"Chicken Breast\", \"unit_price\": 3.85, \"uom\": \"lb\", \"min_qty\": 50, \"volume_discount\": {\"threshold\": 200, \"discount_pct\": 5}}], \"price_lock\": true, \"escalation_cap_pct\": 3.0}",
+      "required": false,
+      "example": "{\"items\": [{\"sku\": \"CHK-BRS-001\", \"description\": \"Chicken Breast\", \"unit_price\": 3.85, \"uom\": \"lb\"}], \"price_lock\": true, \"escalation_cap_pct\": 3.0}"
+    },
+    {
+      "name": "Payment Terms",
+      "type": "singleSelect",
+      "description": "Payment terms specified in this contract (overrides vendor default).",
+      "required": false,
+      "options": {
+        "choices": [
+          { "name": "Net 10" },
+          { "name": "Net 15" },
+          { "name": "Net 30" },
+          { "name": "Net 45" },
+          { "name": "Net 60" },
+          { "name": "2/10 Net 30" },
+          { "name": "COD" },
+          { "name": "Prepaid" }
+        ]
+      }
+    },
+    {
+      "name": "Estimated Annual Value",
+      "type": "currency",
+      "description": "Estimated annual spend under this contract.",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" }
+    },
+    {
+      "name": "Minimum Commitment",
+      "type": "currency",
+      "description": "Minimum purchase commitment amount for the contract period.",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" }
+    },
+    {
+      "name": "Volume Rebate Terms",
+      "type": "multilineText",
+      "description": "Description of volume rebate or discount tiers, if any.",
+      "required": false
+    },
+    {
+      "name": "Delivery Terms",
+      "type": "multilineText",
+      "description": "Contracted delivery schedule, lead times, and minimum order quantities.",
+      "required": false,
+      "example": "Delivery: Mon/Wed/Fri. Lead time: next-day for orders by 2PM. MOQ: $250."
+    },
+    {
+      "name": "Contract Document",
+      "type": "attachment",
+      "description": "Uploaded signed contract document (PDF).",
+      "required": false
+    },
+    {
+      "name": "Approved By",
+      "type": "singleLineText",
+      "description": "Name/role of the person who approved this contract (Controller or GM per Blueprint 5G).",
+      "required": false,
+      "example": "Controller - Jane Doe"
+    },
+    {
+      "name": "Approved Date",
+      "type": "date",
+      "description": "Date the contract was approved.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Renewal Proposal Sent",
+      "type": "checkbox",
+      "description": "Whether OpenClaw has generated and sent a renewal proposal at the 60-day mark.",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Renewal Notes",
+      "type": "multilineText",
+      "description": "Notes about renewal negotiations, proposed changes, or reasons for non-renewal.",
+      "required": false
+    },
+    {
+      "name": "Days Until Expiry",
+      "type": "formula",
+      "description": "Calculated days remaining until contract expiry. Used by n8n for alert thresholds.",
+      "required": false,
+      "options": {
+        "formula": "DATETIME_DIFF({End Date}, TODAY(), 'days')"
+      }
+    },
+    {
+      "name": "Alert Tier",
+      "type": "formula",
+      "description": "Calculated alert tier based on days until expiry: 90-day, 60-day, 30-day, or Expired.",
+      "required": false,
+      "options": {
+        "formula": "IF({Days Until Expiry} <= 0, '🔴 Expired', IF({Days Until Expiry} <= 30, '🟠 30-Day Alert', IF({Days Until Expiry} <= 60, '🟡 60-Day Alert', IF({Days Until Expiry} <= 90, '🔵 90-Day Alert', '✅ Active'))))"
+      }
+    },
+    {
+      "name": "Related Purchase Orders",
+      "type": "linkedRecord",
+      "description": "Link to purchase orders placed under this contract.",
+      "required": false,
+      "options": {
+        "linkedTableName": "Purchase Orders",
+        "prefersSingleRecordLink": false,
+        "inverseLinkFieldName": "Contract"
+      }
+    },
+    {
+      "name": "Created Date",
+      "type": "dateTime",
+      "description": "Date the contract record was created.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY", "timeFormat": "h:mma", "timeZone": "America/New_York" }
+    },
+    {
+      "name": "Last Modified",
+      "type": "dateTime",
+      "description": "Date the contract record was last updated.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY", "timeFormat": "h:mma", "timeZone": "America/New_York" }
+    }
+  ],
+  "views": [
+    {
+      "name": "All Contracts",
+      "type": "grid",
+      "description": "Default view showing all contracts."
+    },
+    {
+      "name": "Active Contracts",
+      "type": "grid",
+      "description": "Filtered to active contracts only.",
+      "filter": { "field": "Status", "operator": "is", "value": "Active" }
+    },
+    {
+      "name": "Expiring Soon",
+      "type": "grid",
+      "description": "Contracts expiring within 90 days. Primary view for n8n daily expiry check workflow.",
+      "filter": "Days Until Expiry <= 90 AND Status is Active",
+      "sort": { "field": "Days Until Expiry", "direction": "asc" }
+    },
+    {
+      "name": "By Vendor",
+      "type": "grid",
+      "description": "Grouped by vendor for easy review.",
+      "group": { "field": "Vendor" }
+    }
+  ]
+}

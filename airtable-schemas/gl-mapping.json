@@ -1,0 +1,201 @@
+{
+  "tableName": "GL Mapping",
+  "description": "Maps Department + Item Category combinations to General Ledger account codes and budget targets. Used by Claude for automated GL coding of invoices (Blueprint 5E) and by n8n for PO creation GL assignment (Blueprint 5C). Also stores monthly/annual budget targets for variance reporting (Blueprint 5H).",
+  "fields": [
+    {
+      "name": "Mapping ID",
+      "type": "autoNumber",
+      "description": "Auto-incrementing unique identifier for each GL mapping rule.",
+      "required": true
+    },
+    {
+      "name": "Department",
+      "type": "singleSelect",
+      "description": "Hotel department that incurs the expense.",
+      "required": true,
+      "options": {
+        "choices": [
+          { "name": "Food & Beverage", "color": "greenLight2" },
+          { "name": "Kitchen", "color": "greenLight2" },
+          { "name": "Banquets", "color": "greenLight2" },
+          { "name": "Bar / Lounge", "color": "tealLight2" },
+          { "name": "Room Service", "color": "tealLight2" },
+          { "name": "Rooms / Front Office", "color": "blueLight2" },
+          { "name": "Housekeeping", "color": "purpleLight2" },
+          { "name": "Engineering / Maintenance", "color": "orangeLight2" },
+          { "name": "Spa", "color": "pinkLight2" },
+          { "name": "Sales & Marketing", "color": "yellowLight2" },
+          { "name": "Administration", "color": "grayLight2" },
+          { "name": "General / Property", "color": "grayLight2" }
+        ]
+      }
+    },
+    {
+      "name": "Item Category",
+      "type": "singleSelect",
+      "description": "Product/service category for the line item.",
+      "required": true,
+      "options": {
+        "choices": [
+          { "name": "Food - Produce" },
+          { "name": "Food - Protein" },
+          { "name": "Food - Dairy" },
+          { "name": "Food - Dry Goods" },
+          { "name": "Food - Bakery" },
+          { "name": "Food - Seafood" },
+          { "name": "Food - Frozen" },
+          { "name": "Food - General" },
+          { "name": "Beverage - Alcoholic" },
+          { "name": "Beverage - Non-Alcoholic" },
+          { "name": "Guest Room Supplies" },
+          { "name": "Guest Amenities" },
+          { "name": "Cleaning Chemicals" },
+          { "name": "Cleaning Supplies" },
+          { "name": "Linens" },
+          { "name": "Uniforms" },
+          { "name": "Maintenance Parts" },
+          { "name": "Maintenance Tools" },
+          { "name": "Office Supplies" },
+          { "name": "Printing & Stationery" },
+          { "name": "Spa Products" },
+          { "name": "Pool & Recreation" },
+          { "name": "Safety & Security" },
+          { "name": "Technology / IT" },
+          { "name": "Capital Equipment" },
+          { "name": "Furniture & Fixtures" },
+          { "name": "Operating Supplies - Other" }
+        ]
+      }
+    },
+    {
+      "name": "GL Account Code",
+      "type": "singleLineText",
+      "description": "General Ledger account code in the hotel's chart of accounts. Claude uses this mapping for automated GL coding (Blueprint 5E).",
+      "required": true,
+      "example": "4010"
+    },
+    {
+      "name": "GL Account Name",
+      "type": "singleLineText",
+      "description": "Human-readable name for the GL account.",
+      "required": true,
+      "example": "Food Cost"
+    },
+    {
+      "name": "Sub Account Code",
+      "type": "singleLineText",
+      "description": "Optional sub-account code for more granular tracking (e.g., 4010.01 for Produce, 4010.02 for Protein).",
+      "required": false,
+      "example": "4010.01"
+    },
+    {
+      "name": "Sub Account Name",
+      "type": "singleLineText",
+      "description": "Human-readable name for the sub-account.",
+      "required": false,
+      "example": "Food Cost - Produce"
+    },
+    {
+      "name": "Cost Center",
+      "type": "singleLineText",
+      "description": "Cost center code for departmental reporting.",
+      "required": false,
+      "example": "CC-100"
+    },
+    {
+      "name": "Monthly Budget",
+      "type": "currency",
+      "description": "Monthly budget target for this department + category combination. Used in weekly variance reports (Blueprint 5H).",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" }
+    },
+    {
+      "name": "Annual Budget",
+      "type": "currency",
+      "description": "Annual budget target. Typically Monthly Budget x 12 but may vary for seasonal adjustments.",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" }
+    },
+    {
+      "name": "Budget Target Pct",
+      "type": "percent",
+      "description": "Target percentage of revenue (e.g., Food Cost target of 32% of F&B revenue). Used in daily flash reports (Blueprint 5H).",
+      "required": false,
+      "options": { "precision": 1 },
+      "example": "32.0% for Food Cost"
+    },
+    {
+      "name": "Approval Threshold",
+      "type": "currency",
+      "description": "Dollar threshold above which purchases in this category require additional approval. Overrides the default PO approval tiers for specific categories.",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" }
+    },
+    {
+      "name": "Requires Brand Approval",
+      "type": "checkbox",
+      "description": "Whether items in this category must come from the brand-approved vendor/product list (Blueprint 5I).",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Active",
+      "type": "checkbox",
+      "description": "Whether this mapping rule is currently active.",
+      "required": false,
+      "defaultValue": true
+    },
+    {
+      "name": "Accounting System Code",
+      "type": "singleLineText",
+      "description": "Corresponding account code in the external accounting system (M3/Sage Intacct). Used when posting matched invoices.",
+      "required": false,
+      "example": "1-4010-100"
+    },
+    {
+      "name": "Notes",
+      "type": "multilineText",
+      "description": "Notes about this GL mapping (e.g., special coding rules, seasonal adjustments).",
+      "required": false
+    }
+  ],
+  "sampleData": [
+    { "Department": "Kitchen", "Item Category": "Food - Produce", "GL Account Code": "4010", "GL Account Name": "Food Cost", "Sub Account Code": "4010.01", "Monthly Budget": 8500 },
+    { "Department": "Kitchen", "Item Category": "Food - Protein", "GL Account Code": "4010", "GL Account Name": "Food Cost", "Sub Account Code": "4010.02", "Monthly Budget": 15000 },
+    { "Department": "Kitchen", "Item Category": "Food - Dairy", "GL Account Code": "4010", "GL Account Name": "Food Cost", "Sub Account Code": "4010.03", "Monthly Budget": 4500 },
+    { "Department": "Kitchen", "Item Category": "Food - Dry Goods", "GL Account Code": "4010", "GL Account Name": "Food Cost", "Sub Account Code": "4010.04", "Monthly Budget": 3200 },
+    { "Department": "Kitchen", "Item Category": "Food - Seafood", "GL Account Code": "4010", "GL Account Name": "Food Cost", "Sub Account Code": "4010.05", "Monthly Budget": 9000 },
+    { "Department": "Bar / Lounge", "Item Category": "Beverage - Alcoholic", "GL Account Code": "4020", "GL Account Name": "Beverage Cost", "Sub Account Code": "4020.01", "Monthly Budget": 12000 },
+    { "Department": "Bar / Lounge", "Item Category": "Beverage - Non-Alcoholic", "GL Account Code": "4020", "GL Account Name": "Beverage Cost", "Sub Account Code": "4020.02", "Monthly Budget": 2500 },
+    { "Department": "Rooms / Front Office", "Item Category": "Guest Room Supplies", "GL Account Code": "5020", "GL Account Name": "Rooms Supplies", "Monthly Budget": 6000 },
+    { "Department": "Housekeeping", "Item Category": "Cleaning Chemicals", "GL Account Code": "5030", "GL Account Name": "Housekeeping Supplies", "Monthly Budget": 3500 },
+    { "Department": "Housekeeping", "Item Category": "Linens", "GL Account Code": "5035", "GL Account Name": "Linen Expense", "Monthly Budget": 4000 },
+    { "Department": "Engineering / Maintenance", "Item Category": "Maintenance Parts", "GL Account Code": "6010", "GL Account Name": "Repairs & Maintenance", "Monthly Budget": 5000 },
+    { "Department": "Administration", "Item Category": "Office Supplies", "GL Account Code": "6510", "GL Account Name": "Office Supplies", "Monthly Budget": 1200 }
+  ],
+  "views": [
+    {
+      "name": "All Mappings",
+      "type": "grid",
+      "description": "Default view showing all GL mappings."
+    },
+    {
+      "name": "By Department",
+      "type": "grid",
+      "description": "Grouped by department for departmental budget review.",
+      "group": { "field": "Department" }
+    },
+    {
+      "name": "By GL Code",
+      "type": "grid",
+      "description": "Sorted by GL Account Code for chart of accounts reference.",
+      "sort": { "field": "GL Account Code", "direction": "asc" }
+    },
+    {
+      "name": "Budget Overview",
+      "type": "grid",
+      "description": "Shows monthly and annual budgets with target percentages.",
+      "fields": ["Department", "Item Category", "GL Account Code", "GL Account Name", "Monthly Budget", "Annual Budget", "Budget Target Pct"]
+    }
+  ]
+}

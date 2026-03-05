@@ -1,0 +1,434 @@
+{
+  "tableName": "Vendor Master",
+  "description": "Central vendor/supplier database. Stores contact info, contract pricing by SKU, payment terms, insurance/certification tracking, and performance scores. Referenced by Purchase Orders, Invoices, Contracts, and Deliveries. Maps to Blueprint sections 5B (Vendor Sourcing), 5G (Vendor Relationship), and 5I (Compliance).",
+  "fields": [
+    {
+      "name": "Vendor ID",
+      "type": "singleLineText",
+      "description": "Unique vendor identifier (e.g., VND-001). Auto-generated on creation.",
+      "required": true,
+      "example": "VND-001"
+    },
+    {
+      "name": "Vendor Name",
+      "type": "singleLineText",
+      "description": "Legal business name of the vendor/supplier.",
+      "required": true,
+      "example": "Sysco Foods"
+    },
+    {
+      "name": "DBA Name",
+      "type": "singleLineText",
+      "description": "Doing-business-as name if different from legal name.",
+      "required": false,
+      "example": "Sysco Central Florida"
+    },
+    {
+      "name": "Status",
+      "type": "singleSelect",
+      "description": "Current vendor approval status. Only 'Approved' vendors can receive POs.",
+      "required": true,
+      "options": {
+        "choices": [
+          { "name": "Approved", "color": "greenLight2" },
+          { "name": "Pending Approval", "color": "yellowLight2" },
+          { "name": "Suspended", "color": "orangeLight2" },
+          { "name": "Inactive", "color": "grayLight2" },
+          { "name": "Blocked", "color": "redLight2" }
+        ]
+      },
+      "defaultValue": "Pending Approval"
+    },
+    {
+      "name": "Category",
+      "type": "multipleSelects",
+      "description": "Product/service categories this vendor supplies.",
+      "required": true,
+      "options": {
+        "choices": [
+          { "name": "Food - Produce" },
+          { "name": "Food - Protein" },
+          { "name": "Food - Dairy" },
+          { "name": "Food - Dry Goods" },
+          { "name": "Food - Bakery" },
+          { "name": "Food - Seafood" },
+          { "name": "Food - Frozen" },
+          { "name": "Beverage - Alcoholic" },
+          { "name": "Beverage - Non-Alcoholic" },
+          { "name": "Guest Room Supplies" },
+          { "name": "Housekeeping Chemicals" },
+          { "name": "Linens & Uniforms" },
+          { "name": "Maintenance & Repair" },
+          { "name": "Office Supplies" },
+          { "name": "Spa Products" },
+          { "name": "Capital Equipment" },
+          { "name": "Other" }
+        ]
+      }
+    },
+    {
+      "name": "Primary Contact Name",
+      "type": "singleLineText",
+      "description": "Name of the primary sales or account representative.",
+      "required": true,
+      "example": "John Smith"
+    },
+    {
+      "name": "Primary Contact Email",
+      "type": "email",
+      "description": "Email address for orders and general communication.",
+      "required": true,
+      "example": "jsmith@sysco.com"
+    },
+    {
+      "name": "Primary Contact Phone",
+      "type": "phoneNumber",
+      "description": "Phone number for the primary contact.",
+      "required": true,
+      "example": "+1-407-555-0123"
+    },
+    {
+      "name": "Orders Email",
+      "type": "email",
+      "description": "Dedicated email for receiving POs (may differ from contact email). Used by n8n workflow to transmit POs.",
+      "required": false,
+      "example": "orders@sysco.com"
+    },
+    {
+      "name": "AP Email",
+      "type": "email",
+      "description": "Email for accounts payable inquiries and invoice disputes.",
+      "required": false,
+      "example": "ap@sysco.com"
+    },
+    {
+      "name": "Phone",
+      "type": "phoneNumber",
+      "description": "Main business phone. Used by ElevenLabs voice agent for vendor calls (Blueprint 5B).",
+      "required": false,
+      "example": "+1-407-555-0100"
+    },
+    {
+      "name": "Address",
+      "type": "multilineText",
+      "description": "Full mailing/business address.",
+      "required": false,
+      "example": "1234 Distribution Way\nOrlando, FL 32801"
+    },
+    {
+      "name": "Website",
+      "type": "url",
+      "description": "Vendor website URL.",
+      "required": false,
+      "example": "https://www.sysco.com"
+    },
+    {
+      "name": "Vendor Portal URL",
+      "type": "url",
+      "description": "URL for vendor's online ordering portal, if available. n8n can submit orders via API for vendors with portal systems (Blueprint 5C).",
+      "required": false,
+      "example": "https://shop.sysco.com"
+    },
+    {
+      "name": "Has Portal API",
+      "type": "checkbox",
+      "description": "Whether this vendor supports API-based ordering (Sysco, US Foods, etc.). Determines if POs are sent via API or email.",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Prefers Phone",
+      "type": "checkbox",
+      "description": "Vendor prefers phone over email for orders/quotes. Triggers ElevenLabs voice agent instead of email (Blueprint 5B).",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Payment Terms",
+      "type": "singleSelect",
+      "description": "Standard payment terms for this vendor.",
+      "required": true,
+      "options": {
+        "choices": [
+          { "name": "Net 10" },
+          { "name": "Net 15" },
+          { "name": "Net 30" },
+          { "name": "Net 45" },
+          { "name": "Net 60" },
+          { "name": "2/10 Net 30" },
+          { "name": "COD" },
+          { "name": "Prepaid" },
+          { "name": "Credit Card" }
+        ]
+      },
+      "defaultValue": "Net 30"
+    },
+    {
+      "name": "Minimum Order Amount",
+      "type": "currency",
+      "description": "Minimum dollar amount per order required by this vendor.",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" },
+      "defaultValue": 0
+    },
+    {
+      "name": "Lead Time Days",
+      "type": "number",
+      "description": "Standard delivery lead time in business days. Used by demand forecasting to determine when to place orders (Blueprint 5A Step 4).",
+      "required": false,
+      "options": { "precision": 0 },
+      "defaultValue": 1
+    },
+    {
+      "name": "Delivery Schedule",
+      "type": "singleLineText",
+      "description": "Regular delivery days (e.g., 'Mon, Wed, Fri'). Helps n8n time auto-PO generation.",
+      "required": false,
+      "example": "Mon, Wed, Fri"
+    },
+    {
+      "name": "Contract Pricing",
+      "type": "multilineText",
+      "description": "JSON array of contracted prices by SKU. Cross-referenced by n8n for price verification (Blueprint 5B). Format: [{\"sku\": \"CHK-BRS-001\", \"description\": \"Chicken Breast 50lb\", \"unit_price\": 3.85, \"uom\": \"lb\", \"effective_date\": \"2026-01-01\", \"expiry_date\": \"2026-12-31\"}]",
+      "required": false,
+      "example": "[{\"sku\": \"CHK-BRS-001\", \"description\": \"Chicken Breast\", \"unit_price\": 3.85, \"uom\": \"lb\", \"effective_date\": \"2026-01-01\", \"expiry_date\": \"2026-12-31\"}]"
+    },
+    {
+      "name": "Price Tolerance Pct",
+      "type": "percent",
+      "description": "Allowable price variance percentage before auto-dispute email is generated. Default 2% per Blueprint 5B.",
+      "required": false,
+      "options": { "precision": 1 },
+      "defaultValue": 2.0
+    },
+    {
+      "name": "Tax ID / EIN",
+      "type": "singleLineText",
+      "description": "Federal Tax ID / EIN for 1099 reporting (Blueprint 5I). Exported year-end for AP.",
+      "required": false,
+      "example": "12-3456789"
+    },
+    {
+      "name": "W9 On File",
+      "type": "checkbox",
+      "description": "Whether a current W-9 form has been received. Part of vendor onboarding workflow (Blueprint 5G).",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "W9 Document",
+      "type": "attachment",
+      "description": "Uploaded W-9 form document.",
+      "required": false
+    },
+    {
+      "name": "Insurance Certificate On File",
+      "type": "checkbox",
+      "description": "Whether current liability insurance certificate is on file.",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Insurance Expiry Date",
+      "type": "date",
+      "description": "Expiration date of the vendor's liability insurance certificate. n8n sends reminders when approaching expiry (Blueprint 5I).",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Insurance Document",
+      "type": "attachment",
+      "description": "Uploaded insurance certificate document.",
+      "required": false
+    },
+    {
+      "name": "Food Safety Cert On File",
+      "type": "checkbox",
+      "description": "Whether a current food safety certification is on file (required for F&B vendors).",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Food Safety Cert Expiry",
+      "type": "date",
+      "description": "Expiration date of food safety certification. Automated reminders at 90/60/30 days.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Food Safety Cert Document",
+      "type": "attachment",
+      "description": "Uploaded food safety certification document.",
+      "required": false
+    },
+    {
+      "name": "Business License Expiry",
+      "type": "date",
+      "description": "Expiration date of vendor's business license.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Onboarding Status",
+      "type": "singleSelect",
+      "description": "Tracks progress through the vendor onboarding workflow (Blueprint 5G).",
+      "required": false,
+      "options": {
+        "choices": [
+          { "name": "Not Started", "color": "grayLight2" },
+          { "name": "W9 Requested", "color": "yellowLight2" },
+          { "name": "Insurance Requested", "color": "yellowLight2" },
+          { "name": "Certs Requested", "color": "yellowLight2" },
+          { "name": "Documents Under Review", "color": "blueLight2" },
+          { "name": "Complete", "color": "greenLight2" }
+        ]
+      },
+      "defaultValue": "Not Started"
+    },
+    {
+      "name": "Performance Score",
+      "type": "rating",
+      "description": "Overall vendor performance score (1-10 scale). Calculated monthly by Claude from delivery, accuracy, quality, pricing, and responsiveness data (Blueprint 5B, 5G).",
+      "required": false,
+      "options": { "max": 10, "color": "yellowBright" }
+    },
+    {
+      "name": "On-Time Delivery Rate",
+      "type": "percent",
+      "description": "Percentage of deliveries arriving on time. Aggregated from Deliveries table.",
+      "required": false,
+      "options": { "precision": 1 }
+    },
+    {
+      "name": "Order Accuracy Rate",
+      "type": "percent",
+      "description": "Percentage of orders delivered without quantity or item discrepancies.",
+      "required": false,
+      "options": { "precision": 1 }
+    },
+    {
+      "name": "Quality Complaint Count",
+      "type": "number",
+      "description": "Number of quality complaints in the current scoring period.",
+      "required": false,
+      "options": { "precision": 0 },
+      "defaultValue": 0
+    },
+    {
+      "name": "Pricing Consistency Score",
+      "type": "rating",
+      "description": "How consistently the vendor honors contracted pricing (1-10).",
+      "required": false,
+      "options": { "max": 10, "color": "yellowBright" }
+    },
+    {
+      "name": "Responsiveness Score",
+      "type": "rating",
+      "description": "How quickly vendor responds to inquiries and quotes (1-10).",
+      "required": false,
+      "options": { "max": 10, "color": "yellowBright" }
+    },
+    {
+      "name": "Last Scorecard Date",
+      "type": "date",
+      "description": "Date of the most recent monthly vendor scorecard generation.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Contracts",
+      "type": "linkedRecord",
+      "description": "Link to all contracts with this vendor.",
+      "required": false,
+      "options": {
+        "linkedTableName": "Contract Tracker",
+        "prefersSingleRecordLink": false,
+        "inverseLinkFieldName": "Vendor"
+      }
+    },
+    {
+      "name": "Purchase Orders",
+      "type": "linkedRecord",
+      "description": "Link to all purchase orders placed with this vendor.",
+      "required": false,
+      "options": {
+        "linkedTableName": "Purchase Orders",
+        "prefersSingleRecordLink": false,
+        "inverseLinkFieldName": "Vendor"
+      }
+    },
+    {
+      "name": "Invoices",
+      "type": "linkedRecord",
+      "description": "Link to all invoices received from this vendor.",
+      "required": false,
+      "options": {
+        "linkedTableName": "Invoice Log",
+        "prefersSingleRecordLink": false,
+        "inverseLinkFieldName": "Vendor"
+      }
+    },
+    {
+      "name": "Deliveries",
+      "type": "linkedRecord",
+      "description": "Link to all deliveries from this vendor.",
+      "required": false,
+      "options": {
+        "linkedTableName": "Deliveries",
+        "prefersSingleRecordLink": false,
+        "inverseLinkFieldName": "Vendor"
+      }
+    },
+    {
+      "name": "Notes",
+      "type": "multilineText",
+      "description": "Internal notes about this vendor (relationship history, special terms, etc.).",
+      "required": false
+    },
+    {
+      "name": "Created Date",
+      "type": "dateTime",
+      "description": "Date the vendor record was created.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY", "timeFormat": "h:mma", "timeZone": "America/New_York" }
+    },
+    {
+      "name": "Last Modified",
+      "type": "dateTime",
+      "description": "Date the vendor record was last updated.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY", "timeFormat": "h:mma", "timeZone": "America/New_York" }
+    }
+  ],
+  "views": [
+    {
+      "name": "All Vendors",
+      "type": "grid",
+      "description": "Default view showing all vendors."
+    },
+    {
+      "name": "Approved Vendors",
+      "type": "grid",
+      "description": "Filtered to show only approved vendors.",
+      "filter": { "field": "Status", "operator": "is", "value": "Approved" }
+    },
+    {
+      "name": "Expiring Certifications",
+      "type": "grid",
+      "description": "Vendors with insurance or food safety certs expiring within 90 days. Used by n8n contract expiry monitoring.",
+      "filter": "Insurance Expiry Date or Food Safety Cert Expiry within next 90 days"
+    },
+    {
+      "name": "Performance Rankings",
+      "type": "grid",
+      "description": "Sorted by Performance Score descending. Used for monthly scorecard review.",
+      "sort": { "field": "Performance Score", "direction": "desc" }
+    },
+    {
+      "name": "Pending Onboarding",
+      "type": "grid",
+      "description": "Vendors with incomplete onboarding documents.",
+      "filter": { "field": "Onboarding Status", "operator": "isNot", "value": "Complete" }
+    }
+  ]
+}

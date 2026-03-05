@@ -1,0 +1,268 @@
+{
+  "tableName": "Inventory",
+  "description": "Tracks current stock levels, par levels, and usage patterns for all items. Updated by POS-driven depletion (Blueprint 3.1), receiving workflow 05, and par-level monitoring workflow 06.",
+  "fields": [
+    {
+      "name": "SKU",
+      "type": "singleLineText",
+      "description": "Unique stock keeping unit code. Primary identifier.",
+      "required": true,
+      "example": "CHK-BRS-001"
+    },
+    {
+      "name": "Item Name",
+      "type": "singleLineText",
+      "description": "Human-readable item name.",
+      "required": true,
+      "example": "Chicken Breast, Boneless Skinless"
+    },
+    {
+      "name": "Category",
+      "type": "singleSelect",
+      "description": "Product category for GL mapping and reporting.",
+      "required": true,
+      "options": {
+        "choices": [
+          { "name": "Food - Produce" },
+          { "name": "Food - Protein" },
+          { "name": "Food - Dairy" },
+          { "name": "Food - Dry Goods" },
+          { "name": "Food - Bakery" },
+          { "name": "Food - Seafood" },
+          { "name": "Food - Frozen" },
+          { "name": "Beverage - Alcoholic" },
+          { "name": "Beverage - Non-Alcoholic" },
+          { "name": "Guest Room Supplies" },
+          { "name": "Housekeeping Chemicals" },
+          { "name": "Linens & Uniforms" },
+          { "name": "Maintenance Parts" },
+          { "name": "Office Supplies" },
+          { "name": "Spa Products" }
+        ]
+      }
+    },
+    {
+      "name": "Department",
+      "type": "singleSelect",
+      "description": "Primary department that uses/consumes this item.",
+      "required": true,
+      "options": {
+        "choices": [
+          { "name": "Kitchen" },
+          { "name": "Food & Beverage" },
+          { "name": "Banquets" },
+          { "name": "Bar / Lounge" },
+          { "name": "Housekeeping" },
+          { "name": "Engineering" },
+          { "name": "Spa" },
+          { "name": "Front Office" },
+          { "name": "General" }
+        ]
+      }
+    },
+    {
+      "name": "UOM",
+      "type": "singleLineText",
+      "description": "Unit of measure for stock tracking.",
+      "required": true,
+      "example": "lb"
+    },
+    {
+      "name": "Current Stock",
+      "type": "number",
+      "description": "Current quantity on hand. Updated by POS sales (depletion) and receiving (addition). Maps to 'current_stock' in workflow 04.",
+      "required": true,
+      "options": { "precision": 2 },
+      "defaultValue": 0
+    },
+    {
+      "name": "Par Level",
+      "type": "number",
+      "description": "Target minimum stock level. Auto-reorder triggered when Current Stock < Par Level (Blueprint 5F).",
+      "required": true,
+      "options": { "precision": 2 },
+      "defaultValue": 20
+    },
+    {
+      "name": "Max Level",
+      "type": "number",
+      "description": "Maximum desired stock level (to prevent over-ordering).",
+      "required": false,
+      "options": { "precision": 2 }
+    },
+    {
+      "name": "Reorder Point",
+      "type": "number",
+      "description": "Stock level that triggers reorder alert (usually same as Par Level).",
+      "required": false,
+      "options": { "precision": 2 }
+    },
+    {
+      "name": "Reorder Qty",
+      "type": "number",
+      "description": "Suggested quantity to order when reordering.",
+      "required": false,
+      "options": { "precision": 2 }
+    },
+    {
+      "name": "Pending Orders",
+      "type": "number",
+      "description": "Quantity on open POs not yet received. Prevents double-ordering.",
+      "required": false,
+      "options": { "precision": 2 },
+      "defaultValue": 0
+    },
+    {
+      "name": "Available Stock",
+      "type": "formula",
+      "description": "Calculated: Current Stock + Pending Orders. Shows total available.",
+      "required": false,
+      "options": {
+        "formula": "{Current Stock} + {Pending Orders}"
+      }
+    },
+    {
+      "name": "Avg Daily Usage",
+      "type": "number",
+      "description": "7-day rolling average daily consumption. Calculated from POS sales data (Blueprint 3.3).",
+      "required": false,
+      "options": { "precision": 2 }
+    },
+    {
+      "name": "Days of Stock",
+      "type": "formula",
+      "description": "Calculated days remaining at current usage rate.",
+      "required": false,
+      "options": {
+        "formula": "IF({Avg Daily Usage} > 0, {Current Stock} / {Avg Daily Usage}, 999)"
+      }
+    },
+    {
+      "name": "Stock Status",
+      "type": "formula",
+      "description": "Visual indicator: Critical (below par), Low, or OK.",
+      "required": false,
+      "options": {
+        "formula": "IF({Current Stock} <= 0, '🔴 OUT', IF({Current Stock} < {Par Level}, '🟡 LOW', '✅ OK'))"
+      }
+    },
+    {
+      "name": "Below Par",
+      "type": "formula",
+      "description": "Checkbox for filtering items needing reorder.",
+      "required": false,
+      "options": {
+        "formula": "{Current Stock} < {Par Level}"
+      }
+    },
+    {
+      "name": "Tracked by POS",
+      "type": "checkbox",
+      "description": "Whether this item has recipe-level tracking via POS (vs manual count).",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Recipe Items",
+      "type": "multilineText",
+      "description": "For POS-tracked items: JSON of menu items and ingredient quantities per serving.",
+      "required": false,
+      "example": "[{\"menu_item\": \"Chicken Caesar\", \"qty_per_serving\": 0.5}]"
+    },
+    {
+      "name": "Last Received Date",
+      "type": "date",
+      "description": "Most recent delivery date. Updated by workflow 05.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Last Delivery ID",
+      "type": "singleLineText",
+      "description": "Reference to last delivery record.",
+      "required": false
+    },
+    {
+      "name": "Vendor",
+      "type": "linkedRecord",
+      "description": "Preferred vendor for this item.",
+      "required": false,
+      "options": {
+        "linkedTableName": "Vendor Master",
+        "prefersSingleRecordLink": true,
+        "inverseLinkFieldName": "Inventory Items"
+      }
+    },
+    {
+      "name": "Contract Price",
+      "type": "currency",
+      "description": "Current contracted unit price from vendor.",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" }
+    },
+    {
+      "name": "Last Count Date",
+      "type": "date",
+      "description": "Date of last physical inventory count (for manual-count items).",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Active",
+      "type": "checkbox",
+      "description": "Whether item is currently in use.",
+      "required": false,
+      "defaultValue": true
+    },
+    {
+      "name": "Notes",
+      "type": "multilineText",
+      "description": "Special handling notes, storage requirements, etc.",
+      "required": false
+    }
+  ],
+  "views": [
+    {
+      "name": "All Items",
+      "type": "grid",
+      "description": "Complete inventory list."
+    },
+    {
+      "name": "Below Par - Reorder Needed",
+      "type": "grid",
+      "description": "Items at or below par level requiring reorder. Primary view for auto-reorder workflow.",
+      "filter": { "field": "Below Par", "operator": "is", "value": true },
+      "sort": { "field": "Days of Stock", "direction": "asc" }
+    },
+    {
+      "name": "Critical - Out of Stock",
+      "type": "grid",
+      "description": "Zero or negative stock items.",
+      "filter": { "field": "Current Stock", "operator": "<=", "value": 0 }
+    },
+    {
+      "name": "POS-Tracked Items",
+      "type": "grid",
+      "description": "Items with automatic POS depletion tracking.",
+      "filter": { "field": "Tracked by POS", "operator": "is", "value": true }
+    },
+    {
+      "name": "Manual Count Items",
+      "type": "grid",
+      "description": "Items requiring physical counts (not POS-tracked).",
+      "filter": { "field": "Tracked by POS", "operator": "is", "value": false }
+    },
+    {
+      "name": "By Department",
+      "type": "grid",
+      "description": "Grouped by department.",
+      "group": { "field": "Department" }
+    },
+    {
+      "name": "By Category",
+      "type": "grid",
+      "description": "Grouped by category for spend analysis.",
+      "group": { "field": "Category" }
+    }
+  ]
+}

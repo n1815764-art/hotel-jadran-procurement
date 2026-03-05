@@ -1,0 +1,331 @@
+{
+  "tableName": "Invoice Log",
+  "description": "Records all vendor invoices from OCR extraction through three-way matching, GL coding, and accounting system posting. Populated by n8n workflow 02 (OCR Processing) which extracts data via Nanonets. Supports the full Invoice Processing & Three-Way Match workflow (Blueprint 5E) including duplicate detection, automated dispute generation, and AP posting.",
+  "fields": [
+    {
+      "name": "Invoice ID",
+      "type": "autoNumber",
+      "description": "Auto-incrementing internal record ID.",
+      "required": true
+    },
+    {
+      "name": "Invoice Number",
+      "type": "singleLineText",
+      "description": "Vendor's invoice number as extracted by OCR. Maps to 'invoice_number' in workflow 02. Used for duplicate detection (Blueprint 5E).",
+      "required": true,
+      "example": "INV-2026-0142"
+    },
+    {
+      "name": "Vendor",
+      "type": "linkedRecord",
+      "description": "Link to the vendor in the Vendor Master table. Matched from OCR-extracted vendor name.",
+      "required": true,
+      "options": {
+        "linkedTableName": "Vendor Master",
+        "prefersSingleRecordLink": true,
+        "inverseLinkFieldName": "Invoices"
+      }
+    },
+    {
+      "name": "Vendor Name (OCR)",
+      "type": "singleLineText",
+      "description": "Vendor name as extracted by OCR (may not match master exactly). Maps to 'vendor_name' in workflow 02.",
+      "required": false
+    },
+    {
+      "name": "Vendor Email",
+      "type": "email",
+      "description": "Email address the invoice was received from. Maps to 'vendor_email' / 'from' in workflow 02.",
+      "required": false
+    },
+    {
+      "name": "Email ID",
+      "type": "singleLineText",
+      "description": "Reference to the source email message. Maps to 'email_id' in workflow 01/02 for traceability.",
+      "required": false
+    },
+    {
+      "name": "Invoice Date",
+      "type": "date",
+      "description": "Date on the invoice. Maps to 'invoice_date' in workflow 02.",
+      "required": true,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Due Date",
+      "type": "date",
+      "description": "Payment due date. Maps to 'due_date' in workflow 02. Used for early payment discount capture (2/10 Net 30).",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Line Items",
+      "type": "multilineText",
+      "description": "JSON array of invoice line items extracted by OCR. Maps to 'line_items' in workflow 02. Format: [{\"description\": \"Chicken Breast 50lb\", \"quantity\": 50, \"unit_price\": 3.85, \"total\": 192.50}]. Used in three-way matching against PO line items.",
+      "required": false,
+      "example": "[{\"description\": \"Chicken Breast 50lb\", \"quantity\": 50, \"unit_price\": 3.85, \"total\": 192.50}]"
+    },
+    {
+      "name": "Subtotal",
+      "type": "currency",
+      "description": "Invoice subtotal before tax. Maps to 'subtotal' in workflow 02.",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" }
+    },
+    {
+      "name": "Tax Amount",
+      "type": "currency",
+      "description": "Tax amount on the invoice. Maps to 'tax_amount' in workflow 02.",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" }
+    },
+    {
+      "name": "Total Amount",
+      "type": "currency",
+      "description": "Total invoice amount. Maps to 'total_amount' in workflow 02.",
+      "required": true,
+      "options": { "precision": 2, "symbol": "$" }
+    },
+    {
+      "name": "Status",
+      "type": "singleSelect",
+      "description": "Current invoice processing status. Initialized to 'Pending Match' by workflow 02 (maps to 'pending_match' status).",
+      "required": true,
+      "options": {
+        "choices": [
+          { "name": "OCR Processing", "color": "grayLight2" },
+          { "name": "Pending Match", "color": "yellowLight2" },
+          { "name": "Matched - Perfect", "color": "greenLight2" },
+          { "name": "Matched - Minor Discrepancy", "color": "tealLight2" },
+          { "name": "Matched - Significant Discrepancy", "color": "orangeLight2" },
+          { "name": "Pending Review", "color": "blueLight2" },
+          { "name": "Dispute Sent", "color": "redLight2" },
+          { "name": "Approved for Payment", "color": "greenDark1" },
+          { "name": "Posted to Accounting", "color": "purpleLight2" },
+          { "name": "Paid", "color": "grayDark1" },
+          { "name": "Duplicate - Rejected", "color": "redDark1" },
+          { "name": "Credit Memo", "color": "pinkLight2" }
+        ]
+      },
+      "defaultValue": "OCR Processing"
+    },
+    {
+      "name": "Matched PO",
+      "type": "linkedRecord",
+      "description": "Link to the purchase order matched against this invoice (Match 1 of three-way match).",
+      "required": false,
+      "options": {
+        "linkedTableName": "Purchase Orders",
+        "prefersSingleRecordLink": true,
+        "inverseLinkFieldName": "Invoices"
+      }
+    },
+    {
+      "name": "Matched Delivery",
+      "type": "linkedRecord",
+      "description": "Link to the delivery record matched against this invoice (Match 2 of three-way match).",
+      "required": false,
+      "options": {
+        "linkedTableName": "Deliveries",
+        "prefersSingleRecordLink": true,
+        "inverseLinkFieldName": "Invoice"
+      }
+    },
+    {
+      "name": "Match Result",
+      "type": "singleSelect",
+      "description": "Outcome of the three-way match analysis by Claude (Blueprint 5E).",
+      "required": false,
+      "options": {
+        "choices": [
+          { "name": "Perfect Match", "color": "greenLight2" },
+          { "name": "Minor Discrepancy (<$25)", "color": "tealLight2" },
+          { "name": "Significant Discrepancy", "color": "orangeLight2" },
+          { "name": "Dispute Required", "color": "redLight2" },
+          { "name": "No PO Found", "color": "grayLight2" },
+          { "name": "Not Matched Yet", "color": "yellowLight2" }
+        ]
+      },
+      "defaultValue": "Not Matched Yet"
+    },
+    {
+      "name": "Match Details",
+      "type": "multilineText",
+      "description": "JSON object with detailed three-way match analysis. Contains per-line-item comparison results, discrepancy amounts, and Claude's recommendations. Example from Blueprint 5E match analysis.",
+      "required": false,
+      "example": "{\"lines\": [{\"item\": \"Chicken Breast\", \"po_qty\": 50, \"inv_qty\": 50, \"recv_qty\": 50, \"po_price\": 3.85, \"inv_price\": 3.85, \"status\": \"MATCH\"}], \"total_discrepancy\": 0, \"recommendation\": \"auto_approve\"}"
+    },
+    {
+      "name": "Discrepancy Amount",
+      "type": "currency",
+      "description": "Total dollar amount of discrepancies found in three-way match. Minor if <$25 (auto-approve), significant if >=$25 (hold for review).",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" },
+      "defaultValue": 0
+    },
+    {
+      "name": "GL Codes",
+      "type": "multilineText",
+      "description": "JSON array of GL account code assignments. Assigned automatically by Claude using the GL Mapping table (Blueprint 5E). Format: [{\"line\": 1, \"gl_code\": \"4010\", \"amount\": 192.50, \"department\": \"Kitchen\"}]",
+      "required": false,
+      "example": "[{\"line\": 1, \"gl_code\": \"4010\", \"amount\": 192.50, \"department\": \"Kitchen\"}]"
+    },
+    {
+      "name": "Primary GL Code",
+      "type": "singleLineText",
+      "description": "Primary GL account code (for single-category invoices). Quick reference for reporting.",
+      "required": false,
+      "example": "4010"
+    },
+    {
+      "name": "OCR Confidence",
+      "type": "percent",
+      "description": "Average OCR extraction confidence score from Nanonets. Maps to 'ocr_confidence' in workflow 02. Low confidence triggers Claude fallback.",
+      "required": false,
+      "options": { "precision": 1 }
+    },
+    {
+      "name": "OCR Raw Data",
+      "type": "multilineText",
+      "description": "Raw JSON prediction data from Nanonets OCR. Stored for audit and reprocessing.",
+      "required": false
+    },
+    {
+      "name": "Is Duplicate",
+      "type": "checkbox",
+      "description": "Flagged if this invoice matches an existing vendor + invoice number + amount combination (Blueprint 5E duplicate detection).",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Duplicate Of",
+      "type": "singleLineText",
+      "description": "Reference to the original invoice ID if this is a detected duplicate.",
+      "required": false
+    },
+    {
+      "name": "Is Credit Memo",
+      "type": "checkbox",
+      "description": "Whether this is a credit memo rather than an invoice. OCR extracts and n8n reverses AP entry (Blueprint 5E).",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Dispute Email Sent",
+      "type": "checkbox",
+      "description": "Whether an automated dispute email has been sent to the vendor.",
+      "required": false,
+      "defaultValue": false
+    },
+    {
+      "name": "Dispute Details",
+      "type": "multilineText",
+      "description": "Details of the dispute including specific line items and dollar amounts.",
+      "required": false
+    },
+    {
+      "name": "Reviewed By",
+      "type": "singleLineText",
+      "description": "Name of the person who reviewed this invoice (for exceptions routed via Slack).",
+      "required": false
+    },
+    {
+      "name": "Reviewed At",
+      "type": "dateTime",
+      "description": "Timestamp when the invoice was manually reviewed.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY", "timeFormat": "h:mma", "timeZone": "America/New_York" }
+    },
+    {
+      "name": "Posted To Accounting At",
+      "type": "dateTime",
+      "description": "Timestamp when the invoice was posted to M3/Sage Intacct accounting system.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY", "timeFormat": "h:mma", "timeZone": "America/New_York" }
+    },
+    {
+      "name": "Payment Date",
+      "type": "date",
+      "description": "Date the invoice was paid.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY" }
+    },
+    {
+      "name": "Early Payment Discount",
+      "type": "currency",
+      "description": "Discount captured for early payment (e.g., 2/10 Net 30). Tracked for ROI reporting.",
+      "required": false,
+      "options": { "precision": 2, "symbol": "$" },
+      "defaultValue": 0
+    },
+    {
+      "name": "Invoice Document",
+      "type": "attachment",
+      "description": "Original invoice PDF as received by email.",
+      "required": false
+    },
+    {
+      "name": "Created At",
+      "type": "dateTime",
+      "description": "Timestamp when the invoice record was created by workflow 02. Maps to 'created_at'.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY", "timeFormat": "h:mma", "timeZone": "America/New_York" }
+    },
+    {
+      "name": "Last Modified",
+      "type": "dateTime",
+      "description": "Timestamp when the invoice record was last updated.",
+      "required": false,
+      "options": { "dateFormat": "M/D/YYYY", "timeFormat": "h:mma", "timeZone": "America/New_York" }
+    }
+  ],
+  "views": [
+    {
+      "name": "All Invoices",
+      "type": "grid",
+      "description": "Default view showing all invoices."
+    },
+    {
+      "name": "Pending Match",
+      "type": "grid",
+      "description": "Invoices awaiting three-way matching.",
+      "filter": { "field": "Status", "operator": "is", "value": "Pending Match" }
+    },
+    {
+      "name": "Exceptions - Review Required",
+      "type": "grid",
+      "description": "Invoices with significant discrepancies or no PO match requiring Controller review.",
+      "filter": "Match Result is 'Significant Discrepancy' OR Match Result is 'No PO Found'"
+    },
+    {
+      "name": "Ready for Payment",
+      "type": "grid",
+      "description": "Matched and approved invoices ready to post to accounting.",
+      "filter": { "field": "Status", "operator": "is", "value": "Approved for Payment" }
+    },
+    {
+      "name": "Disputes",
+      "type": "grid",
+      "description": "Invoices with active disputes.",
+      "filter": { "field": "Status", "operator": "is", "value": "Dispute Sent" }
+    },
+    {
+      "name": "Duplicate Suspects",
+      "type": "grid",
+      "description": "Invoices flagged as potential duplicates.",
+      "filter": { "field": "Is Duplicate", "operator": "is", "value": true }
+    },
+    {
+      "name": "By Vendor",
+      "type": "grid",
+      "description": "Grouped by vendor for AP reconciliation.",
+      "group": { "field": "Vendor" }
+    },
+    {
+      "name": "Processing Dashboard",
+      "type": "grid",
+      "description": "Daily processing view sorted by creation date.",
+      "sort": { "field": "Created At", "direction": "desc" }
+    }
+  ]
+}
