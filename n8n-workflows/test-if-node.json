@@ -1,0 +1,106 @@
+{
+  "name": "05 - Test with If Node",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "test-if",
+        "responseMode": "responseNode"
+      },
+      "id": "z1a2b3c4-d5e6-7890-fghi-j12345678901",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "test-if"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.test }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "f7g8h9i0-j1k2-3456-lmno-p78901234567",
+      "name": "Has Value?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "jsonPayload": "={{ JSON.stringify({ result: 'true' }) }}"
+      },
+      "id": "true-response",
+      "name": "True Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "jsonPayload": "={{ JSON.stringify({ result: 'false' }) }}"
+      },
+      "id": "false-response",
+      "name": "False Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 400]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Has Value?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Value?": {
+      "main": [
+        [
+          {
+            "node": "True Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "False Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "pinData": {},
+  "versionId": "test"
+}

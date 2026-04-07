@@ -1,0 +1,49 @@
+{
+  "name": "04 - AI Validation - Test",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-validate-test",
+        "responseMode": "responseNode"
+      },
+      "id": "p1q2r3s4-t5u6-7890-vwxy-z12345678901",
+      "name": "Webhook - Validate",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "ai-validate-test"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "jsonPayload": "={{ JSON.stringify({ success: true, test: true }) }}"
+      },
+      "id": "y0z1a2b3-c4d5-6789-efgh-i01234567890",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [450, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Validate": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "pinData": {},
+  "versionId": "test"
+}

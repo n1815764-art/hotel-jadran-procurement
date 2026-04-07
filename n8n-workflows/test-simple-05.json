@@ -1,0 +1,70 @@
+{
+  "name": "05 - Receiving Update - Test",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "receiving-test",
+        "responseMode": "responseNode"
+      },
+      "id": "z1a2b3c4-d5e6-7890-fghi-j12345678901",
+      "name": "Webhook - Delivery",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "receiving-test"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { test: true } }]"
+      },
+      "id": "a2b3c4d5-e6f7-8901-ghij-k23456789012",
+      "name": "Validate Delivery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "jsonPayload": "={{ JSON.stringify({ success: true, test: true }) }}"
+      },
+      "id": "i0j1k2l3-m4n5-6789-opqr-s01234567890",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Delivery": {
+      "main": [
+        [
+          {
+            "node": "Validate Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Delivery": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "pinData": {},
+  "versionId": "test"
+}

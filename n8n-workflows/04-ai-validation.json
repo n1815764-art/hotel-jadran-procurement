@@ -16,18 +16,9 @@
     },
     {
       "parameters": {
-        "operation": "select",
+        "operation": "executeQuery",
         "schema": "public",
-        "table": "requisitions",
-        "where": {
-          "conditions": [
-            {
-              "column": "requisition_id",
-              "value": "={{ $json.body.requisitionId || $json.requisitionId }}",
-              "condition": "equal"
-            }
-          ]
-        }
+        "query": "SELECT * FROM requisitions WHERE requisition_id = '{{ $json.body.requisitionId || $json.requisitionId }}'"
       },
       "id": "q2r3s4t5-u6v7-8901-wxyz-a23456789012",
       "name": "Get Requisition",
@@ -43,18 +34,9 @@
     },
     {
       "parameters": {
-        "operation": "select",
+        "operation": "executeQuery",
         "schema": "public",
-        "table": "inventory",
-        "where": {
-          "conditions": [
-            {
-              "column": "item_name",
-              "value": "={{ $json.item_name }}",
-              "condition": "equal"
-            }
-          ]
-        }
+        "query": "SELECT * FROM inventory WHERE item_name = '{{ $json.item_name }}'"
       },
       "id": "r3s4t5u6-v7w8-9012-xyza-b34567890123",
       "name": "Get Inventory Data",
@@ -87,7 +69,7 @@
       },
       "id": "s4t5u6v7-w8x9-0123-yzab-c45678901234",
       "name": "Claude AI Validation",
-      "type": "@n8n-nodes-base.anthropic",
+      "type": "n8n-nodes-base.anthropic",
       "typeVersion": 1,
       "position": [850, 300],
       "credentials": {
@@ -99,7 +81,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse Claude's JSON response\nconst aiResponse = $input.all()[0].json.content[0].text;\nlet decision;\n\ntry {\n  // Try to extract JSON from response\n  const jsonMatch = aiResponse.match(/```json\n?([\s\S]*?)\n?```/) || \n                    aiResponse.match(/{[\s\S]*}/);\n  const jsonStr = jsonMatch ? jsonMatch[1] || jsonMatch[0] : aiResponse;\n  decision = JSON.parse(jsonStr);\n} catch (e) {\n  // Fallback if JSON parsing fails\n  decision = {\n    decision: 'FLAG',\n    approved_quantity: 0,\n    reason: 'Could not parse AI response: ' + e.message,\n    confidence: 0,\n    flag_reason: 'Parse error'\n  };\n}\n\n// Get requisition ID from previous node\nconst reqId = $input.all()[0].json.requisition_id || \n              $input.all()[0].json.body?.requisitionId;\n\nreturn [{\n  json: {\n    requisitionId: reqId,\n    decision: decision.decision,\n    approvedQuantity: decision.approved_quantity || decision.approvedQuantity,\n    reason: decision.reason,\n    confidence: decision.confidence || 0.5,\n    flagReason: decision.flag_reason || decision.flagReason || null,\n    recommendations: decision.recommendations || [],\n    rawResponse: aiResponse\n  }\n}];"
+        "jsCode": "// Parse Claude's JSON response\nconst aiResponse = $input.all()[0].json.content[0].text;\nlet decision;\n\ntry {\n  // Try to extract JSON from response\n  const jsonMatch = aiResponse.match(/```json\\n?([\\s\\S]*?)\\n?```/) || \n                    aiResponse.match(/{[\\s\\S]*}/);\n  const jsonStr = jsonMatch ? jsonMatch[1] || jsonMatch[0] : aiResponse;\n  decision = JSON.parse(jsonStr);\n} catch (e) {\n  // Fallback if JSON parsing fails\n  decision = {\n    decision: 'FLAG',\n    approved_quantity: 0,\n    reason: 'Could not parse AI response: ' + e.message,\n    confidence: 0,\n    flag_reason: 'Parse error'\n  };\n}\n\n// Get requisition ID from previous node\nconst reqId = $input.all()[0].json.requisition_id || \n              $input.all()[0].json.body?.requisitionId;\n\nreturn [{\n  json: {\n    requisitionId: reqId,\n    decision: decision.decision,\n    approvedQuantity: decision.approved_quantity || decision.approvedQuantity,\n    reason: decision.reason,\n    confidence: decision.confidence || 0.5,\n    flagReason: decision.flag_reason || decision.flagReason || null,\n    recommendations: decision.recommendations || [],\n    rawResponse: aiResponse\n  }\n}];"
       },
       "id": "t5u6v7w8-x9y0-1234-zabc-d56789012345",
       "name": "Parse AI Decision",
@@ -109,46 +91,9 @@
     },
     {
       "parameters": {
-        "operation": "update",
+        "operation": "executeQuery",
         "schema": "public",
-        "table": "requisitions",
-        "columns": {
-          "mapping": [
-            {
-              "column": "status",
-              "value": "={{ $json.decision === 'APPROVE' ? 'approved' : $json.decision === 'REDUCE' ? 'reduced' : $json.decision === 'REJECT' ? 'rejected' : 'flagged' }}"
-            },
-            {
-              "column": "approved_quantity",
-              "value": "={{ $json.approvedQuantity }}"
-            },
-            {
-              "column": "ai_decision",
-              "value": "={{ $json.decision }}"
-            },
-            {
-              "column": "ai_reason",
-              "value": "={{ $json.reason }}"
-            },
-            {
-              "column": "ai_confidence",
-              "value": "={{ $json.confidence }}"
-            },
-            {
-              "column": "validated_at",
-              "value": "={{ $now }}"
-            }
-          ]
-        },
-        "where": {
-          "conditions": [
-            {
-              "column": "requisition_id",
-              "value": "={{ $json.requisitionId }}",
-              "condition": "equal"
-            }
-          ]
-        }
+        "query": "UPDATE requisitions SET status = '{{ $json.decision === 'APPROVE' ? 'approved' : $json.decision === 'REDUCE' ? 'reduced' : $json.decision === 'REJECT' ? 'rejected' : 'flagged' }}', approved_quantity = {{ $json.approvedQuantity }}, ai_decision = '{{ $json.decision }}', ai_reason = '{{ $json.reason }}', ai_confidence = {{ $json.confidence }}, validated_at = NOW() WHERE requisition_id = '{{ $json.requisitionId }}'"
       },
       "id": "u6v7w8x9-y0z1-2345-abcd-e67890123456",
       "name": "Update Requisition",

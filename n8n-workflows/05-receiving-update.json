@@ -26,18 +26,9 @@
     },
     {
       "parameters": {
-        "operation": "select",
+        "operation": "executeQuery",
         "schema": "public",
-        "table": "purchase_orders",
-        "where": {
-          "conditions": [
-            {
-              "column": "po_number",
-              "value": "={{ $json.poNumber }}",
-              "condition": "equal"
-            }
-          ]
-        }
+        "query": "SELECT * FROM purchase_orders WHERE po_number = '{{ $json.poNumber }}'"
       },
       "id": "b3c4d5e6-f7g8-9012-hijk-l34567890123",
       "name": "Get PO Data",
