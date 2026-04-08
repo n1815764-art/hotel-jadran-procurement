@@ -2,6 +2,12 @@
 
 **Complete automation of hotel procurement — from POS-driven demand sensing through AI-powered vendor management.**
 
+IMPORTANT NOTE: ONLY THE INTERFACE FOLDER WHICH IS THE MAIN INTERFACE WITH SOME REAL DATA AND THE SAMPLE FOLDER(INTERFACE WITH SAMPLE DATA) ARE UP TO DATE. THE RECIEVING(FOR WHEN SUPPLIERS DELIVER) APP IS ALSO AVAILABLE UNDER:
+Interface/ — live version → /prijem &&
+sample/ — sample data version → /prijem
+Use only the sample interface and recieving apps for now as the live version is not working and requires the connection to the slack channel and n8n workflows.
+THE N8N WORKFLOWS WILL BE UPLOADED TO THE N8N CLOUD(IGNORE THE FOLDER "n8n-workflows".
+
 ## 🎯 Project Goal
 Replace 85-90% of the Hotel Purchasing Manager role with an integrated system of:
 - POS integration (Toast/Simphony/Mews)
