@@ -8,8 +8,5 @@ let initialized = false;
 export function initDataService(): void {
   if (initialized) return;
   initialized = true;
-
-  if (process.env.NEXT_PUBLIC_DATA_SOURCE === "airtable") {
-    setDataService(new AirtableDataService());
-  }
+  setDataService(new AirtableDataService());
 }
