@@ -121,13 +121,26 @@ export async function GET() {
           severity = "approval";
         }
 
+        // Map event_type to the n8n workflow that generates it
+        const workflowMap: Record<string, string> = {
+          "Invoice_Matched":   "WF-02 OCR / Match",
+          "Invoice Matched":   "WF-02 OCR / Match",
+          "Approved":          "WF-04 AI Validation",
+          "ANOMALY_DETECTED":  "WF-13 Anomaly Detection",
+          "ANOMALY DETECTED":  "WF-13 Anomaly Detection",
+          "AR_REMINDER_30_SENT": "WF-AR Reminders",
+          "AR_REMINDER_60_SENT": "WF-AR Reminders",
+          "AR_REMINDER_90_SENT": "WF-AR Reminders",
+        };
+        const workflow_id = workflowMap[eventType] ?? eventType.replace(/_/g, " ");
+
         return [{
           id: str(rec.fields.reference_id) || rec.id,
           severity,
           title: eventType.replace(/_/g, " "),
           message: rawDetails,
           timestamp: rec.createdTime,
-          workflow_id: "WF",
+          workflow_id,
           reference_id: str(rec.fields.reference_id) || undefined,
         } satisfies Alert];
       })

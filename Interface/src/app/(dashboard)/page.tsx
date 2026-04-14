@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { getDataService } from "@/services/sample-data-service";
 import { KPICard } from "@/components/ui/card";
 import { Card } from "@/components/ui/card";
@@ -12,8 +12,6 @@ import { useAppStore } from "@/stores/app-store";
 import Link from "next/link";
 import { CheckCircle, XCircle, ArrowRight, RefreshCw } from "lucide-react";
 import { AlertDetailOverlay } from "@/components/alert-detail-overlay";
-
-const POLL_INTERVAL = 30_000;
 
 interface DashboardData {
   alerts: Alert[];
@@ -42,7 +40,6 @@ export default function DashboardPage() {
   const [flash, setFlash] = useState(false);
   const [activeAlert, setActiveAlert] = useState<Alert | null>(null);
   const setSelectedPO = useAppStore((s) => s.setSelectedPO);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async (isBackground = false) => {
     if (isBackground) {
@@ -73,10 +70,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     load(false);
-    pollRef.current = setInterval(() => load(true), POLL_INTERVAL);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
   }, [load]);
 
   const handleApprove = async (poNumber: string) => {
@@ -184,10 +177,10 @@ export default function DashboardPage() {
           <p className="text-xs text-zinc-500">No alerts from Airtable audit trail.</p>
         )}
         <div className={cn(
-          "space-y-2 transition-opacity duration-300",
+          "space-y-2 overflow-y-auto max-h-[420px] pr-1 transition-opacity duration-300",
           refreshing && "opacity-70"
         )}>
-          {alerts.slice(0, 6).map((alert) => (
+          {alerts.map((alert) => (
             <button
               key={alert.id}
               onClick={() => setActiveAlert(alert)}

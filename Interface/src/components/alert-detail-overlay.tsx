@@ -224,18 +224,33 @@ function EvidencePanel({
     if (item) return <InventoryEvidence item={item} />;
   }
 
-  // Invoice
-  if (ref?.startsWith("INV-")) {
-    const invoice = invoices.find((i) => i.invoice_id === ref);
-    if (invoice) return <InvoiceEvidence invoice={invoice} />;
-    return <PendingEvidence ref={ref} type="Invoice" />;
-  }
-
-  // Purchase Order
+  // Purchase Order — starts with "PO-"
   if (ref?.startsWith("PO-")) {
     const po = purchaseOrders.find((p) => p.po_number === ref);
     if (po) return <POEvidence po={po} />;
     return <PendingEvidence ref={ref} type="Purchase Order" />;
+  }
+
+  // Invoice by legacy INV- prefix
+  if (ref?.startsWith("INV-")) {
+    const invoice = invoices.find((i) => i.invoice_id === ref || i.vendor_invoice_number === ref);
+    if (invoice) return <InvoiceEvidence invoice={invoice} />;
+    return <PendingEvidence ref={ref} type="Invoice" />;
+  }
+
+  // Invoice number formats from Airtable: "826/2026", "1923/2026", "01420", etc.
+  // Matches: digits/digits, or pure digit strings that aren't PO/REQ IDs
+  if (ref && /^\d+\/\d{4}$/.test(ref)) {
+    const invoice = invoices.find((i) => i.vendor_invoice_number === ref);
+    if (invoice) return <InvoiceEvidence invoice={invoice} />;
+    return <PendingEvidence ref={ref} type="Invoice" />;
+  }
+
+  // Requisition — starts with "REQ-": try to find a related PO or invoice
+  if (ref?.startsWith("REQ-")) {
+    const po = purchaseOrders.find((p) => p.po_number === ref);
+    if (po) return <POEvidence po={po} />;
+    // Fall through to generic display
   }
 
   // Vendor
@@ -257,7 +272,7 @@ function EvidencePanel({
     <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-6 text-center">
       <p className="text-zinc-500 text-sm">No structured evidence data available for this alert.</p>
       <p className="text-zinc-600 text-xs mt-1">
-        Check the {alert.workflow_id} workflow logs in n8n for details.
+        Check the <span className="mono text-zinc-400">{alert.workflow_id}</span> logs in n8n for details.
       </p>
     </div>
   );
