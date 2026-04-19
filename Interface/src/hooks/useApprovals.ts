@@ -4,13 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DataService } from "@/services/data-service";
 import { fetchPendingApprovals } from "@/services/data-service-extensions";
 import { useApprovalStore } from "@/store/approval-store";
+import type { ApprovalItem } from "@/types/approval";
 
 const POLL_INTERVAL_MS = 30_000;
 
 export interface UseApprovalsResult {
-  items: ReturnType<typeof useApprovalStore.getState>["items"];
-  pending: ReturnType<typeof useApprovalStore.getState>["pending"];
-  errors: ReturnType<typeof useApprovalStore.getState>["errors"];
+  items: ApprovalItem[];
+  inFlight: Set<string>;
+  errors: Record<string, string>;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -19,7 +20,7 @@ export interface UseApprovalsResult {
 
 export function useApprovals(dataService: DataService): UseApprovalsResult {
   const items = useApprovalStore((s) => s.items);
-  const pending = useApprovalStore((s) => s.pending);
+  const inFlight = useApprovalStore((s) => s.inFlight);
   const errors = useApprovalStore((s) => s.errors);
   const setItems = useApprovalStore((s) => s.setItems);
   const clearError = useApprovalStore((s) => s.clearError);
@@ -52,5 +53,5 @@ export function useApprovals(dataService: DataService): UseApprovalsResult {
     };
   }, [refresh]);
 
-  return { items, pending, errors, loading, error, refresh, clearError };
+  return { items, inFlight, errors, loading, error, refresh, clearError };
 }

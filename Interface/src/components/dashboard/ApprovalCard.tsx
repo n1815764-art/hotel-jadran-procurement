@@ -11,7 +11,7 @@ import type { ApprovalItem } from "@/types/approval";
 interface ApprovalCardProps {
   item: ApprovalItem;
   currentUser: string;
-  pending: boolean;
+  inFlight: boolean;
   error?: string;
   onApprove: (item: ApprovalItem) => void;
   onReject: (item: ApprovalItem, reason: string) => void;
@@ -22,7 +22,7 @@ interface ApprovalCardProps {
 export function ApprovalCard({
   item,
   currentUser,
-  pending,
+  inFlight,
   error,
   onApprove,
   onReject,
@@ -32,7 +32,18 @@ export function ApprovalCard({
   const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState("");
 
+  const handleApproveClick = () => {
+    if (inFlight) return;
+    onApprove(item);
+  };
+
+  const handleRejectOpen = () => {
+    if (inFlight) return;
+    setRejectOpen(true);
+  };
+
   const handleRejectConfirm = () => {
+    if (inFlight) return;
     onReject(item, reason.trim());
     setRejectOpen(false);
     setReason("");
@@ -42,7 +53,7 @@ export function ApprovalCard({
   const tier = approvalTier(item.total_amount);
 
   return (
-    <Card className={cn("space-y-3 relative", pending && "opacity-70")}>
+    <Card className={cn("space-y-3 relative", inFlight && "opacity-70")}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span
@@ -110,10 +121,11 @@ export function ApprovalCard({
         <Button
           size="sm"
           variant="success"
-          onClick={() => onApprove(item)}
-          disabled={pending}
+          onClick={handleApproveClick}
+          disabled={inFlight}
+          aria-busy={inFlight}
         >
-          {pending ? (
+          {inFlight ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
           ) : (
             <CheckCircle className="w-3.5 h-3.5" />
@@ -123,8 +135,9 @@ export function ApprovalCard({
         <Button
           size="sm"
           variant="danger"
-          onClick={() => setRejectOpen(true)}
-          disabled={pending}
+          onClick={handleRejectOpen}
+          disabled={inFlight}
+          aria-busy={inFlight}
         >
           <XCircle className="w-3.5 h-3.5" />
           Reject
@@ -134,7 +147,7 @@ export function ApprovalCard({
             size="sm"
             variant="ghost"
             onClick={() => onViewDetails(item)}
-            disabled={pending}
+            disabled={inFlight}
           >
             Details <ArrowRight className="w-3.5 h-3.5" />
           </Button>
@@ -173,7 +186,7 @@ export function ApprovalCard({
             >
               Cancel
             </Button>
-            <Button size="sm" variant="danger" onClick={handleRejectConfirm}>
+            <Button size="sm" variant="danger" onClick={handleRejectConfirm} disabled={inFlight}>
               Confirm Reject
             </Button>
           </div>

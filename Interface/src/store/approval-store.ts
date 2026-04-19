@@ -2,13 +2,17 @@ import { create } from "zustand";
 import type { ApprovalItem, ApprovalRequest } from "@/types/approval";
 import { submitApproval } from "@/services/approval-service";
 
-type PendingMap = Record<string, boolean>;
 type ErrorMap = Record<string, string>;
+
+interface RemovedEntry {
+  item: ApprovalItem;
+  index: number;
+}
 
 interface ApprovalStore {
   items: ApprovalItem[];
-  optimisticallyRemoved: Record<string, ApprovalItem>;
-  pending: PendingMap;
+  optimisticallyRemoved: Record<string, RemovedEntry>;
+  inFlight: Set<string>;
   errors: ErrorMap;
   lastRefresh: number | null;
 
@@ -30,16 +34,37 @@ function omitKey<V>(map: Record<string, V>, key: string): Record<string, V> {
   return next;
 }
 
+function withoutKey(set: Set<string>, key: string): Set<string> {
+  if (!set.has(key)) return set;
+  const next = new Set(set);
+  next.delete(key);
+  return next;
+}
+
+function withKey(set: Set<string>, key: string): Set<string> {
+  if (set.has(key)) return set;
+  const next = new Set(set);
+  next.add(key);
+  return next;
+}
+
+function insertAt(items: ApprovalItem[], index: number, item: ApprovalItem): ApprovalItem[] {
+  const clamped = Math.max(0, Math.min(index, items.length));
+  return [...items.slice(0, clamped), item, ...items.slice(clamped)];
+}
+
 export const useApprovalStore = create<ApprovalStore>((set, get) => ({
   items: [],
   optimisticallyRemoved: {},
-  pending: {},
+  inFlight: new Set<string>(),
   errors: {},
   lastRefresh: null,
 
-  setItems: (items) => {
-    const { optimisticallyRemoved } = get();
-    const filtered = items.filter((item) => !optimisticallyRemoved[keyOf(item)]);
+  setItems: (incoming) => {
+    const { optimisticallyRemoved, inFlight } = get();
+    const filtered = incoming.filter(
+      (item) => !optimisticallyRemoved[keyOf(item)] && !inFlight.has(keyOf(item))
+    );
     set({ items: filtered, lastRefresh: Date.now() });
   },
 
@@ -49,33 +74,41 @@ export const useApprovalStore = create<ApprovalStore>((set, get) => ({
 
   submit: async (payload) => {
     const key = payload.record_id;
-    const existing = get().items.find((item) => item.record_id === key);
-    if (!existing) return false;
+    const state = get();
 
-    set((state) => ({
-      items: state.items.filter((item) => item.record_id !== key),
-      optimisticallyRemoved: { ...state.optimisticallyRemoved, [key]: existing },
-      pending: { ...state.pending, [key]: true },
-      errors: omitKey(state.errors, key),
+    if (state.inFlight.has(key)) return false;
+
+    const existingIndex = state.items.findIndex((item) => item.record_id === key);
+    if (existingIndex === -1) return false;
+    const existing = state.items[existingIndex];
+
+    set((s) => ({
+      items: s.items.filter((item) => item.record_id !== key),
+      optimisticallyRemoved: {
+        ...s.optimisticallyRemoved,
+        [key]: { item: existing, index: existingIndex },
+      },
+      inFlight: withKey(s.inFlight, key),
+      errors: omitKey(s.errors, key),
     }));
 
     const response = await submitApproval(payload);
 
     if (response.success) {
-      set((state) => ({
-        pending: omitKey(state.pending, key),
-      }));
+      set((s) => ({ inFlight: withoutKey(s.inFlight, key) }));
       return true;
     }
 
-    set((state) => {
-      const already = state.items.some((item) => item.record_id === key);
+    set((s) => {
+      const already = s.items.some((item) => item.record_id === key);
+      const removed = s.optimisticallyRemoved[key];
+      const restoreIndex = removed?.index ?? 0;
       return {
-        items: already ? state.items : [existing, ...state.items],
-        optimisticallyRemoved: omitKey(state.optimisticallyRemoved, key),
-        pending: omitKey(state.pending, key),
+        items: already ? s.items : insertAt(s.items, restoreIndex, existing),
+        optimisticallyRemoved: omitKey(s.optimisticallyRemoved, key),
+        inFlight: withoutKey(s.inFlight, key),
         errors: {
-          ...state.errors,
+          ...s.errors,
           [key]: response.error ?? response.message ?? "Approval failed",
         },
       };

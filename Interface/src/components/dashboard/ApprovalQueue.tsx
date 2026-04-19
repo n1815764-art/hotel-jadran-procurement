@@ -6,6 +6,7 @@ import type { DataService } from "@/services/data-service";
 import type { ApprovalItem } from "@/types/approval";
 import { useApprovals } from "@/hooks/useApprovals";
 import { useApprovalStore } from "@/store/approval-store";
+import { useToastStore } from "@/store/toast-store";
 import { ApprovalCard } from "./ApprovalCard";
 
 interface ApprovalQueueProps {
@@ -21,25 +22,39 @@ export function ApprovalQueue({
   maxVisible = 5,
   onViewDetails,
 }: ApprovalQueueProps) {
-  const { items, pending, errors, loading, error, clearError } = useApprovals(dataService);
+  const { items, inFlight, errors, loading, error, clearError } = useApprovals(dataService);
   const submit = useApprovalStore((s) => s.submit);
+  const pushToast = useToastStore((s) => s.push);
   const [expanded, setExpanded] = useState(false);
 
   const visible = expanded ? items : items.slice(0, maxVisible);
   const hiddenCount = Math.max(0, items.length - maxVisible);
 
-  const handleApprove = (item: ApprovalItem) => {
-    submit({
+  const handleApprove = async (item: ApprovalItem) => {
+    const ok = await submit({
       type: item.type,
       record_id: item.record_id,
       reference_id: item.reference_id,
       action: "approve",
       approved_by: currentUser,
     });
+    if (ok) {
+      pushToast({
+        severity: "approval",
+        title: "Approval sent",
+        message: `${item.reference_id} approved by ${currentUser}.`,
+      });
+    } else {
+      pushToast({
+        severity: "critical",
+        title: "Approval failed",
+        message: `${item.reference_id} could not be approved. It has been restored to the queue.`,
+      });
+    }
   };
 
-  const handleReject = (item: ApprovalItem, reason: string) => {
-    submit({
+  const handleReject = async (item: ApprovalItem, reason: string) => {
+    const ok = await submit({
       type: item.type,
       record_id: item.record_id,
       reference_id: item.reference_id,
@@ -47,6 +62,19 @@ export function ApprovalQueue({
       approved_by: currentUser,
       notes: reason || undefined,
     });
+    if (ok) {
+      pushToast({
+        severity: "warning",
+        title: "Rejection sent",
+        message: `${item.reference_id} rejected by ${currentUser}.`,
+      });
+    } else {
+      pushToast({
+        severity: "critical",
+        title: "Rejection failed",
+        message: `${item.reference_id} could not be rejected. It has been restored to the queue.`,
+      });
+    }
   };
 
   return (
@@ -91,7 +119,7 @@ export function ApprovalQueue({
                 key={item.record_id}
                 item={item}
                 currentUser={currentUser}
-                pending={Boolean(pending[item.record_id])}
+                inFlight={inFlight.has(item.record_id)}
                 error={errors[item.record_id]}
                 onApprove={handleApprove}
                 onReject={handleReject}

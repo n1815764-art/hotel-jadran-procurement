@@ -2,6 +2,7 @@
 
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { ProcurementChatbot } from "@/components/procurement-chatbot";
+import { Toaster } from "@/components/ui/toaster";
 import { initDataService } from "@/services/init-data-service";
 
 initDataService();
@@ -14,6 +15,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="max-w-[1400px] mx-auto p-6">{children}</div>
       </main>
       <ProcurementChatbot />
+      <Toaster />
     </div>
   );
 }
