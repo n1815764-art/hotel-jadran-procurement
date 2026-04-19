@@ -2,9 +2,11 @@ import type { Alert, AuditEntry, AuditEventType } from "@/types";
 import { formatEUR } from "./utils";
 
 // TODO(follow-up): enrich AuditEntry to carry vendor_name, invoice_count,
-// rejection_reason, etc. so templates can render full context. Today the
-// only structured fields we can rely on are reference_id, actor, amount,
-// and the free-text `details` string.
+// rejection_reason, etc. so fallback messages can render full context.
+// For now the only structured fields we rely on are reference_id, actor,
+// amount, and the free-text `details` string written by n8n workflows
+// (WF06/WF07/WF16/…). Those workflows write BCS (Bosnian/Croatian/Serbian);
+// keep all user-visible strings here in BCS to match.
 
 export const EVENT_SEVERITY: Record<AuditEventType, Alert["severity"]> = {
   PO_CREATED: "info",
@@ -39,19 +41,20 @@ export const EVENT_TO_WORKFLOW: Record<AuditEventType, string> = {
   RECEIVING_CONFIRMED: "WF-05",
 };
 
+// Short Serbian/BCS titles shown in the alert card header.
 export const EVENT_TITLE: Record<AuditEventType, string> = {
-  PO_CREATED: "PO Created",
-  PO_APPROVED: "PO Approved",
-  PO_REJECTED: "PO Rejected",
-  PAYMENT_BATCH_APPROVED: "Payment Batch Approved",
-  PAYMENT_BATCH_REJECTED: "Payment Batch Rejected",
-  INVOICE_MATCHED: "Invoice Matched",
-  INVOICE_DISPUTED: "Invoice Disputed",
-  REORDER_TRIGGERED: "Auto-Reorder Triggered",
-  REORDER_BLOCKED: "Auto-Reorder Blocked",
-  ANOMALY_DETECTED: "Anomaly Detected",
-  REPORT_GENERATED: "Report Generated",
-  RECEIVING_CONFIRMED: "Receiving Confirmed",
+  PO_CREATED: "Nova narud\u017Ebenica",
+  PO_APPROVED: "PO odobren",
+  PO_REJECTED: "PO odbijen",
+  PAYMENT_BATCH_APPROVED: "Paket pla\u0107anja odobren",
+  PAYMENT_BATCH_REJECTED: "Paket pla\u0107anja odbijen",
+  INVOICE_MATCHED: "Faktura uskla\u0111ena",
+  INVOICE_DISPUTED: "Sporna faktura",
+  REORDER_TRIGGERED: "Auto-narud\u017Eba pokrenuta",
+  REORDER_BLOCKED: "Auto-narud\u017Eba blokirana",
+  ANOMALY_DETECTED: "Otkrivena anomalija",
+  REPORT_GENERATED: "Izvje\u0161taj generiran",
+  RECEIVING_CONFIRMED: "Prijem potvr\u0111en",
 };
 
 export function humanize(eventType: AuditEventType): string {
@@ -72,98 +75,96 @@ function ref(entry: AuditEntry): string | null {
 }
 
 /**
- * Build an English, human-readable `message` for any AuditEntry.
+ * Build a human-readable `message` for any AuditEntry.
  *
- * Strategy: start from structured fields we know exist (reference_id, actor,
- * amount). Assemble the message as conditional segments so a missing field
- * never renders as "undefined" or a dangling separator. For rich descriptive
- * events (INVOICE_DISPUTED, ANOMALY_DETECTED) we keep `entry.details`
- * verbatim — n8n produces detailed strings there that already describe the
- * incident in full. For every other event we construct a clean template.
+ * Strategy: n8n workflows (WF06/WF07/WF16/…) already write detailed BCS
+ * strings into AuditEntry.details — that is the canonical user-facing
+ * description. Pass it through verbatim when populated. Only construct a
+ * fallback message (also in BCS) when details is empty, so the UI never
+ * shows a blank body. Conditional segments guarantee no "undefined" text.
+ *
+ * The exhaustive switch exists so adding a new AuditEventType fails the
+ * build until a fallback template is registered.
  */
 export function buildAlertMessage(entry: AuditEntry): string {
+  const details = entry.details?.trim();
+  if (details) return details;
+
+  return fallbackMessage(entry);
+}
+
+function fallbackMessage(entry: AuditEntry): string {
   const eventType = entry.event_type;
   const refId = ref(entry);
   const amt = amountSuffix(entry.amount);
   const actor = entry.actor || null;
-  const details = entry.details?.trim() || null;
 
   switch (eventType) {
     case "PO_CREATED": {
-      const body = join(
-        [refId ? `PO ${refId} created` : "Purchase order created", amt ? `total ${amt}` : null],
-        " \u2014 "
-      );
-      return body || humanize(eventType);
+      const head = refId ? `Narud\u017Ebenica ${refId} kreirana` : "Narud\u017Ebenica kreirana";
+      return join([head, amt ? `iznos ${amt}` : null], " \u2014 ") || humanize(eventType);
     }
     case "PO_APPROVED": {
-      const head = refId ? `PO ${refId} approved` : "Purchase order approved";
-      const by = actor ? `by ${actor}` : null;
+      const head = refId ? `PO ${refId} odobren` : "PO odobren";
+      const by = actor ? `od strane ${actor}` : null;
       const suffix = amt ? `\u2014 ${amt}` : null;
       return join([head, by, suffix], " ") || humanize(eventType);
     }
     case "PO_REJECTED": {
-      const head = refId ? `PO ${refId} rejected` : "Purchase order rejected";
-      const by = actor ? `by ${actor}` : null;
-      const reason = details ? `Reason: ${details}` : "Reason: not provided";
-      return join([join([head, by], " "), reason], ". ");
+      const head = refId ? `PO ${refId} odbijen` : "PO odbijen";
+      const by = actor ? `od strane ${actor}` : null;
+      return join([head, by], " ") || humanize(eventType);
     }
     case "PAYMENT_BATCH_APPROVED": {
-      const head = refId ? `Payment batch ${refId} approved` : "Payment batch approved";
-      const by = actor ? `by ${actor}` : null;
-      const suffix = amt ? `\u2014 total ${amt}` : null;
+      const head = refId ? `Paket pla\u0107anja ${refId} odobren` : "Paket pla\u0107anja odobren";
+      const by = actor ? `od strane ${actor}` : null;
+      const suffix = amt ? `\u2014 ukupno ${amt}` : null;
       return join([head, by, suffix], " ") || humanize(eventType);
     }
     case "PAYMENT_BATCH_REJECTED": {
-      const head = refId ? `Payment batch ${refId} rejected` : "Payment batch rejected";
-      const by = actor ? `by ${actor}` : null;
-      const reason = details ? `Reason: ${details}` : "Reason: not provided";
-      return join([join([head, by], " "), reason], ". ");
+      const head = refId ? `Paket pla\u0107anja ${refId} odbijen` : "Paket pla\u0107anja odbijen";
+      const by = actor ? `od strane ${actor}` : null;
+      return join([head, by], " ") || humanize(eventType);
     }
     case "INVOICE_MATCHED": {
-      const head = refId ? `Invoice ${refId} matched to PO` : "Invoice matched to PO";
+      const head = refId ? `Faktura ${refId} uskla\u0111ena sa PO` : "Faktura uskla\u0111ena sa PO";
       const suffix = amt ? `\u2014 ${amt}` : null;
       return join([head, suffix], " ") || humanize(eventType);
     }
     case "INVOICE_DISPUTED": {
-      if (details) return details;
-      const head = refId ? `Invoice ${refId} disputed` : "Invoice disputed";
+      const head = refId ? `Sporna faktura ${refId}` : "Sporna faktura";
       const suffix = amt ? `\u2014 ${amt}` : null;
-      return join([head, suffix], " ");
+      return join([head, suffix], " ") || humanize(eventType);
     }
     case "REORDER_TRIGGERED": {
-      const head = refId ? `Auto-reorder triggered for ${refId}` : "Auto-reorder triggered";
+      const head = refId ? `Auto-narud\u017Eba pokrenuta za ${refId}` : "Auto-narud\u017Eba pokrenuta";
       const suffix = amt ? `\u2014 ${amt}` : null;
       return join([head, suffix], " ") || humanize(eventType);
     }
     case "REORDER_BLOCKED": {
-      const head = refId ? `Auto-reorder blocked for ${refId}` : "Auto-reorder blocked";
-      const reason = details ? `Reason: ${details}` : "Reason: not provided";
-      return join([head, reason], ". ");
+      return refId ? `Auto-narud\u017Eba blokirana za ${refId}` : "Auto-narud\u017Eba blokirana";
     }
     case "ANOMALY_DETECTED": {
-      if (details) return details;
-      return refId ? `Anomaly detected on ${refId}` : humanize(eventType);
+      return refId ? `Otkrivena anomalija na ${refId}` : humanize(eventType);
     }
     case "REPORT_GENERATED": {
-      const head = refId ? `Report ${refId} generated` : "Report generated";
-      return details ? `${head}. ${details}` : head;
+      return refId ? `Izvje\u0161taj ${refId} generiran` : "Izvje\u0161taj generiran";
     }
     case "RECEIVING_CONFIRMED": {
-      const head = refId ? `Receiving confirmed for PO ${refId}` : "Receiving confirmed";
-      const by = actor ? `by ${actor}` : null;
+      const head = refId ? `Prijem potvr\u0111en za PO ${refId}` : "Prijem potvr\u0111en";
+      const by = actor ? `od strane ${actor}` : null;
       return join([head, by], " ") || humanize(eventType);
     }
     default: {
       const exhaustive: never = eventType;
-      return fallbackMessage(exhaustive);
+      return exhaustiveFallback(exhaustive);
     }
   }
 }
 
-function fallbackMessage(eventType: never): string {
+function exhaustiveFallback(eventType: never): string {
   const raw = eventType as unknown as string;
-  return `${raw.replace(/_/g, " ").toLowerCase()} event`;
+  return `${raw.replace(/_/g, " ").toLowerCase()}`;
 }
 
 export function severityForEvent(eventType: AuditEventType): Alert["severity"] {
