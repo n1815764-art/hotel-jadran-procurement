@@ -19,6 +19,12 @@ import type {
 } from "@/types";
 import type { DataService, AuditFilters, RequisitionInput } from "./data-service";
 import { sampleWorkflows } from "@/data/sample/system-status";
+import {
+  buildAlertMessage,
+  severityForEvent,
+  titleForEvent,
+  workflowForEvent,
+} from "@/lib/alert-messages";
 
 // Airtable table names
 const TABLES = {
@@ -273,24 +279,14 @@ function mapGL(rec: AirtableRawRecord): GLMapping {
 }
 
 function auditToAlert(entry: AuditEntry): Alert | null {
-  let severity: Alert["severity"] = "info";
-  const details = entry.details.toLowerCase();
-
-  if (details.includes("negativan") || details.includes("negative") || details.includes("blocked") || details.includes("blokiran")) {
-    severity = "critical";
-  } else if (details.includes("dispute") || details.includes("sporn") || details.includes("odstupanje") || details.includes("ghost") || details.includes("warning")) {
-    severity = "warning";
-  } else if (details.includes("pending") || details.includes("approval") || details.includes("odobrenje")) {
-    severity = "approval";
-  }
-
+  const eventType = entry.event_type;
   return {
     id: entry.event_id,
-    severity,
-    title: entry.event_type.replace(/_/g, " "),
-    message: entry.details,
+    severity: severityForEvent(eventType),
+    title: titleForEvent(eventType),
+    message: buildAlertMessage(entry),
     timestamp: entry.timestamp,
-    workflow_id: "WF",
+    workflow_id: workflowForEvent(eventType),
     reference_id: entry.reference_id,
   };
 }
