@@ -135,7 +135,7 @@ export async function GET() {
         const workflow_id = workflowMap[eventType] ?? eventType.replace(/_/g, " ");
 
         return [{
-          id: str(rec.fields.reference_id) || rec.id,
+          id: rec.id,
           severity,
           title: eventType.replace(/_/g, " "),
           message: rawDetails,

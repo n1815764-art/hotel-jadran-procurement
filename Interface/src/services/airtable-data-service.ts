@@ -244,7 +244,7 @@ function mapAudit(rec: AirtableRawRecord): AuditEntry {
   const f = rec.fields;
   return {
     _recordId: rec.id,
-    event_id: str(f.reference_id) || rec.id,
+    event_id: rec.id,
     timestamp: str(f.timestamp) || new Date().toISOString(),
     event_type: (str(f.event_type) || "UNKNOWN") as AuditEntry["event_type"],
     actor: str(f.actor),
