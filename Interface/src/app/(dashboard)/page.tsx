@@ -4,11 +4,12 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getDataService } from "@/services/sample-data-service";
 import { KPICard } from "@/components/ui/card";
-import { formatEUR, formatDateTime, formatPercent, severityColor, cn } from "@/lib/utils";
+import { formatEUR, formatPercent, cn } from "@/lib/utils";
 import type { Alert, PurchaseOrder, Invoice, InventoryItem } from "@/types";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { AlertDetailOverlay } from "@/components/alert-detail-overlay";
+import { AlertCard } from "@/components/alert-card";
 import { ApprovalQueue } from "@/components/dashboard/ApprovalQueue";
 import type { ApprovalItem } from "@/types/approval";
 
@@ -177,30 +178,7 @@ export default function DashboardPage() {
           refreshing && "opacity-70"
         )}>
           {alerts.map((alert) => (
-            <button
-              key={alert.id}
-              onClick={() => setActiveAlert(alert)}
-              className={cn(
-                "w-full text-left flex items-start gap-3 p-3 rounded-lg border transition-all",
-                "hover:brightness-125 hover:scale-[1.005] active:scale-100 cursor-pointer",
-                severityColor(alert.severity)
-              )}
-            >
-              <span className="text-lg leading-none mt-0.5">
-                {alert.severity === "critical" && "\uD83D\uDEA8"}
-                {alert.severity === "warning" && "\u26A0\uFE0F"}
-                {alert.severity === "approval" && "\uD83D\uDCCB"}
-                {alert.severity === "info" && "\u2139\uFE0F"}
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-medium text-zinc-200">{alert.title}</span>
-                  <span className="text-[10px] text-zinc-500 mono">{alert.workflow_id}</span>
-                </div>
-                <p className="text-xs text-zinc-400 leading-relaxed">{alert.message}</p>
-              </div>
-              <span className="text-[10px] text-zinc-600 mono shrink-0">{formatDateTime(alert.timestamp)}</span>
-            </button>
+            <AlertCard key={alert.id} alert={alert} onClick={setActiveAlert} />
           ))}
         </div>
       </div>
