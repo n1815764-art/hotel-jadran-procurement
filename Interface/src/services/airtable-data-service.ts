@@ -15,6 +15,7 @@ import type {
   WorkflowStatus,
   IntegrationStatus,
   GLMapping,
+  PaymentBatch,
 } from "@/types";
 import type { DataService, AuditFilters, RequisitionInput } from "./data-service";
 import { sampleWorkflows } from "@/data/sample/system-status";
@@ -32,6 +33,7 @@ const TABLES = {
   RECEIVING_LOG: "Receiving_Log",
   REQUISITION_LOG: "Requisition_Log",
   CONTRACT_LINE_ITEMS: "Contract_Line_Items",
+  PAYMENT_BATCH: "tblKFEvMbOobm9Y9X",
 } as const;
 
 const N8N_BASE = process.env.NEXT_PUBLIC_N8N_WEBHOOK_BASE || "http://localhost:5678";
@@ -112,6 +114,24 @@ function mapPO(rec: AirtableRawRecord): PurchaseOrder {
     source: (str(f.source) || "Manual") as PurchaseOrder["source"],
     requester: str(f.requester),
     ai_note: str(f.notes),
+  };
+}
+
+function mapPaymentBatch(rec: AirtableRawRecord): PaymentBatch {
+  const f = rec.fields;
+  return {
+    _recordId: rec.id,
+    batch_id: str(f.batch_id) || rec.id,
+    vendor_id: str(f.vendor_id) || str(f.vendor_name),
+    vendor_name: str(f.vendor_name),
+    invoice_count: num(f.invoice_count),
+    total_amount: num(f.total_amount),
+    status: (str(f.status) || "Pending Approval") as PaymentBatch["status"],
+    created_date: str(f.created_date) || new Date().toISOString(),
+    due_date: str(f.due_date),
+    approved_by: str(f.approved_by) || null,
+    approval_date: str(f.approval_date) || null,
+    ai_note: str(f.ai_note) || str(f.notes),
   };
 }
 
@@ -308,6 +328,19 @@ export class AirtableDataService implements DataService {
       maxRecords: "1",
     });
     return records.length > 0 ? mapPO(records[0]) : undefined;
+  }
+
+  async getPaymentBatches(filters?: { status?: string }): Promise<PaymentBatch[]> {
+    const params: Record<string, string> = {};
+    if (filters?.status && filters.status !== "All") {
+      params["filterByFormula"] = `{status} = "${filters.status}"`;
+    }
+    try {
+      const records = await fetchTable(TABLES.PAYMENT_BATCH, params);
+      return records.map(mapPaymentBatch);
+    } catch {
+      return [];
+    }
   }
 
   async updatePurchaseOrderStatus(poNumber: string, status: string, approvedBy?: string): Promise<void> {

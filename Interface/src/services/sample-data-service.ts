@@ -14,6 +14,7 @@ import type {
   WorkflowStatus,
   IntegrationStatus,
   GLMapping,
+  PaymentBatch,
 } from "@/types";
 import type { DataService, AuditFilters } from "./data-service";
 import { sampleVendors, sampleScorecards } from "@/data/sample/vendors";
@@ -58,6 +59,10 @@ export class SampleDataService implements DataService {
 
   async getPurchaseOrderByNumber(poNumber: string): Promise<PurchaseOrder | undefined> {
     return this.purchaseOrders.find((po) => po.po_number === poNumber);
+  }
+
+  async getPaymentBatches(_filters?: { status?: string }): Promise<PaymentBatch[]> {
+    return [];
   }
 
   async updatePurchaseOrderStatus(poNumber: string, status: string, approvedBy?: string): Promise<void> {

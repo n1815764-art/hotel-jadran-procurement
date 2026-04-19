@@ -1,17 +1,16 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { getDataService } from "@/services/sample-data-service";
 import { KPICard } from "@/components/ui/card";
-import { Card } from "@/components/ui/card";
-import { StatusBadge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { formatEUR, formatDateTime, formatPercent, severityColor, cn } from "@/lib/utils";
 import type { Alert, PurchaseOrder, Invoice, InventoryItem } from "@/types";
-import { useAppStore } from "@/stores/app-store";
 import Link from "next/link";
-import { CheckCircle, XCircle, ArrowRight, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { AlertDetailOverlay } from "@/components/alert-detail-overlay";
+import { ApprovalQueue } from "@/components/dashboard/ApprovalQueue";
+import type { ApprovalItem } from "@/types/approval";
 
 interface DashboardData {
   alerts: Alert[];
@@ -39,7 +38,9 @@ export default function DashboardPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [flash, setFlash] = useState(false);
   const [activeAlert, setActiveAlert] = useState<Alert | null>(null);
-  const setSelectedPO = useAppStore((s) => s.setSelectedPO);
+  const router = useRouter();
+  const dataService = getDataService();
+  const currentUser = process.env.NEXT_PUBLIC_DEFAULT_USER ?? "Zoran Radonjić";
 
   const load = useCallback(async (isBackground = false) => {
     if (isBackground) {
@@ -72,20 +73,15 @@ export default function DashboardPage() {
     load(false);
   }, [load]);
 
-  const handleApprove = async (poNumber: string) => {
-    const ds = getDataService();
-    await ds.approvePO(poNumber, "Zoran Radonjic");
-    await load();
-  };
-
-  const handleReject = async (poNumber: string) => {
-    const ds = getDataService();
-    await ds.rejectPO(poNumber);
-    await load();
+  const handleViewApprovalDetails = (item: ApprovalItem) => {
+    if (item.type === "po") {
+      router.push(`/purchase-orders/${encodeURIComponent(item.reference_id)}`);
+    } else {
+      router.push(`/invoices?batch=${encodeURIComponent(item.reference_id)}`);
+    }
   };
 
   const alerts = data?.alerts ?? [];
-  const pendingPOs = data?.pendingPOs ?? [];
   const allPOs = data?.allPOs ?? [];
   const invoices = data?.invoices ?? [];
   const inventory = data?.inventory ?? [];
@@ -218,44 +214,12 @@ export default function DashboardPage() {
       />
 
       {/* Pending Approvals */}
-      {!loading && pendingPOs.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-300 mb-3 uppercase tracking-wider">Pending Approvals</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-            {pendingPOs.map((po) => (
-              <Card key={po.po_number} className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="mono text-sm font-semibold text-zinc-200">{po.po_number}</span>
-                  <StatusBadge status={po.source} />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm text-zinc-300">{po.vendor_name}</p>
-                  <div className="flex items-center gap-3 text-xs text-zinc-500">
-                    <span>{po.department}</span>
-                    <span className="mono font-semibold text-zinc-200">{formatEUR(po.total_amount)}</span>
-                  </div>
-                </div>
-                {po.ai_note && (
-                  <div className="ai-content text-xs text-zinc-300 leading-relaxed">{po.ai_note}</div>
-                )}
-                <div className="flex items-center gap-2 pt-1">
-                  <Button size="sm" variant="success" onClick={() => handleApprove(po.po_number)}>
-                    <CheckCircle className="w-3.5 h-3.5" /> Approve
-                  </Button>
-                  <Button size="sm" variant="danger" onClick={() => handleReject(po.po_number)}>
-                    <XCircle className="w-3.5 h-3.5" /> Reject
-                  </Button>
-                  <Link href="/purchase-orders">
-                    <Button size="sm" variant="ghost" onClick={() => setSelectedPO(po.po_number)}>
-                      Details <ArrowRight className="w-3.5 h-3.5" />
-                    </Button>
-                  </Link>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
+      <ApprovalQueue
+        dataService={dataService}
+        currentUser={currentUser}
+        maxVisible={5}
+        onViewDetails={handleViewApprovalDetails}
+      />
     </div>
   );
 }

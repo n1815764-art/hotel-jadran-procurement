@@ -248,3 +248,24 @@ export interface StaffMember {
   department: string;
   pin: string;
 }
+
+export interface PaymentBatch extends AirtableRecord {
+  batch_id: string;
+  vendor_id: string;
+  vendor_name: string;
+  invoice_count: number;
+  total_amount: number;
+  status: PaymentBatchStatus;
+  created_date: string;
+  due_date: string;
+  approved_by: string | null;
+  approval_date: string | null;
+  ai_note: string;
+}
+
+export type PaymentBatchStatus =
+  | "Pending Approval"
+  | "Approved"
+  | "Paid"
+  | "Rejected"
+  | "Cancelled";

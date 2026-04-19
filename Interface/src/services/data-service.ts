@@ -14,6 +14,7 @@ import type {
   WorkflowStatus,
   IntegrationStatus,
   GLMapping,
+  PaymentBatch,
 } from "@/types";
 
 export interface DataService {
@@ -24,6 +25,8 @@ export interface DataService {
   getPurchaseOrders(status?: string): Promise<PurchaseOrder[]>;
   getPurchaseOrderByNumber(poNumber: string): Promise<PurchaseOrder | undefined>;
   updatePurchaseOrderStatus(poNumber: string, status: string, approvedBy?: string): Promise<void>;
+
+  getPaymentBatches(filters?: { status?: string }): Promise<PaymentBatch[]>;
 
   getInvoices(status?: string): Promise<Invoice[]>;
   getInvoiceById(id: string): Promise<Invoice | undefined>;
