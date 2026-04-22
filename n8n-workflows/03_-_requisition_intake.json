@@ -1,0 +1,615 @@
+{
+  "updatedAt": "2026-04-19T03:21:42.603Z",
+  "createdAt": "2026-04-19T03:21:42.603Z",
+  "id": "yFQBA96Hc4lKJrE9",
+  "name": "03 - Requisition Intake",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "requisition",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4f2fb53a-d229-4121-969a-a23e9d7c21a1",
+      "name": "Webhook - Requisition",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        208
+      ],
+      "webhookId": "requisition"
+    },
+    {
+      "parameters": {},
+      "id": "bb412ced-1368-460f-9a62-91e9a54c74c4",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate incoming requisition data\n// Accepts item_id (preferred) or item_name for inventory lookup\nconst req = $input.first().json.body || $input.first().json;\n\nconst requiredBase = ['department', 'quantity_requested', 'requester'];\nconst missing = requiredBase.filter(field => !req[field]);\nif (!req.item_id && !req.item_name) missing.push('item_id or item_name');\n\nif (missing.length > 0) {\n  return [{ json: { error: 'Missing required fields: ' + missing.join(', '), received: req } }];\n}\n\nconst qty = parseFloat(req.quantity_requested);\nif (isNaN(qty) || qty <= 0) {\n  return [{ json: { error: 'Quantity must be a positive number', received: req.quantity_requested } }];\n}\n\nconst reqId = 'REQ-' + new Date().getFullYear() + '-' + String(Date.now()).slice(-4);\n\nreturn [{\n  json: {\n    requisition_id: reqId,\n    department: req.department,\n    item_id: req.item_id || null,\n    item_name: req.item_name || null,\n    quantity_requested: qty,\n    unit: req.unit || 'each',\n    urgency: req.urgency || 'routine',\n    requester: req.requester,\n    justification: req.justification || req.notes || '',\n    submitted_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "0c4c0dce-69dc-4193-aa3d-6dbde1c84172",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f1971e61-c009-4dd2-a971-b4e040b5237b",
+      "name": "Validation Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        448,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: $json.error }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "2c4a6522-353f-4093-b582-ce57d00d7af1",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Inventory",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={{ $json.item_id ? \"{item_id}='\" + $json.item_id + \"'\" : \"{item_name}='\" + $json.item_name + \"'\" }}"
+            },
+            {
+              "name": "maxRecords",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f9c1345d-77c5-4300-a84b-c1cdd9833151",
+      "name": "Lookup Inventory Item",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        96
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Vendor_Master",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={{ ($('Lookup Inventory Item').first().json.records && $('Lookup Inventory Item').first().json.records[0] && $('Lookup Inventory Item').first().json.records[0].fields.preferred_vendor_id) ? \"{vendor_id}='\" + $('Lookup Inventory Item').first().json.records[0].fields.preferred_vendor_id + \"'\" : 'FALSE()' }}"
+            },
+            {
+              "name": "maxRecords",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3846e907-62b3-496e-b9be-60af7e57070e",
+      "name": "Lookup Vendor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        96
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Contract_Line_Items",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={{ ($('Lookup Vendor').first().json.records && $('Lookup Vendor').first().json.records[0]) ? \"AND({vendor_id}='\" + $('Lookup Vendor').first().json.records[0].fields.vendor_id + \"',{item_name}='\" + $('Validate Input').first().json.item_name + \"')\" : 'FALSE()' }}"
+            },
+            {
+              "name": "maxRecords",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "81801de0-f03d-4bfc-b1f2-9af928cdb0d6",
+      "name": "Lookup Contract Price",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        96
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/GL_Account_Mapping",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={{ ($('Lookup Inventory Item').first().json.records && $('Lookup Inventory Item').first().json.records[0] && $('Lookup Inventory Item').first().json.records[0].fields.category) ? \"AND({department}='\" + $('Validate Input').first().json.department + \"',{item_category}='\" + $('Lookup Inventory Item').first().json.records[0].fields.category + \"')\" : 'FALSE()' }}"
+            },
+            {
+              "name": "maxRecords",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "616cbaaa-c560-4b78-b3a8-735d3e1f5933",
+      "name": "Lookup GL Code",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        96
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge all lookups into a single enriched requisition payload.\n// Computes total_amount, approval_tier, and collects enrichment errors.\nconst reqData = $('Validate Input').first().json;\nconst invResp = $('Lookup Inventory Item').first().json;\nconst vendorResp = $('Lookup Vendor').first().json;\nconst contractResp = $('Lookup Contract Price').first().json;\nconst glResp = $('Lookup GL Code').first().json;\n\nconst firstFields = (resp) => (resp && resp.records && resp.records[0]) ? resp.records[0].fields : null;\nconst invRec = firstFields(invResp);\nconst vendorRec = firstFields(vendorResp);\nconst contractRec = firstFields(contractResp);\nconst glRec = firstFields(glResp);\n\nconst errors = [];\nif (!invRec) {\n  errors.push(\"Artikal nije pronadjen u Inventory (item_id=\" + (reqData.item_id || 'null') + \", item_name=\" + (reqData.item_name || 'null') + \")\");\n}\nif (invRec && !vendorRec) {\n  errors.push(\"Preferirani dobavljac nije pronadjen (preferred_vendor_id=\" + (invRec.preferred_vendor_id || 'null') + \")\");\n}\nif (invRec && !glRec) {\n  errors.push(\"GL mapping nije pronadjen (department=\" + reqData.department + \", category=\" + (invRec.category || 'null') + \")\");\n}\n\n// Price cascade: contracted > inventory unit_cost > 0 (hard error)\nlet unit_cost = 0;\nlet price_source = 'none';\nif (contractRec && contractRec.contracted_price != null) {\n  unit_cost = Number(contractRec.contracted_price);\n  price_source = 'contract';\n} else if (invRec && invRec.unit_cost != null) {\n  unit_cost = Number(invRec.unit_cost);\n  price_source = 'inventory';\n}\nif (unit_cost <= 0 && invRec) {\n  errors.push(\"Nema cijene: ni ugovorena cijena ni inventory.unit_cost nisu dostupni\");\n}\n\nconst total_amount = Math.round(unit_cost * reqData.quantity_requested * 100) / 100;\n\n// Approval tier per project spec (EUR)\nlet approval_tier;\nif (total_amount < 500) approval_tier = 'auto';\nelse if (total_amount < 2000) approval_tier = 'dept_head';\nelse if (total_amount < 5000) approval_tier = 'zoran';\nelse approval_tier = 'zoran_gm';\n\nconst current_stock = invRec && invRec.current_stock != null ? Number(invRec.current_stock) : null;\n\nconst enriched = {\n  // Identity\n  requisition_id: reqData.requisition_id,\n  submitted_at: reqData.submitted_at,\n  status: errors.length > 0 ? 'enrichment_failed' : 'pending_validation',\n  enrichment_error: errors.length > 0 ? errors.join('; ') : '',\n\n  // Request\n  department: reqData.department,\n  requester: reqData.requester,\n  urgency: reqData.urgency,\n  justification: reqData.justification,\n  quantity_requested: reqData.quantity_requested,\n  unit: reqData.unit,\n\n  // Item (resolved)\n  item_id: invRec ? invRec.item_id : (reqData.item_id || null),\n  item_name: invRec ? invRec.item_name : (reqData.item_name || null),\n  category: invRec ? invRec.category : null,\n  warehouse: invRec ? invRec.warehouse : null,\n  current_stock,\n  par_level: invRec && invRec.par_level != null ? Number(invRec.par_level) : null,\n  reorder_point: invRec && invRec.reorder_point != null ? Number(invRec.reorder_point) : null,\n  negative_stock: current_stock != null && current_stock < 0,\n\n  // Vendor (resolved)\n  vendor_id: vendorRec ? vendorRec.vendor_id : null,\n  vendor_name: vendorRec ? vendorRec.vendor_name : 'TBD',\n  vendor_email: vendorRec ? (vendorRec.contact_email || '') : '',\n  vendor_payment_terms: vendorRec ? (vendorRec.payment_terms || null) : null,\n  vendor_approved_status: vendorRec ? (vendorRec.approved_status || null) : null,\n\n  // Pricing\n  unit_cost,\n  contracted_price: contractRec && contractRec.contracted_price != null ? Number(contractRec.contracted_price) : null,\n  price_source,\n  total_amount,\n\n  // GL + approval\n  gl_code: glRec ? (glRec.gl_account_code || null) : null,\n  gl_name: glRec ? (glRec.gl_account_name || null) : null,\n  budget_monthly: glRec && glRec.budget_monthly != null ? Number(glRec.budget_monthly) : null,\n  approval_tier\n};\n\n// Airtable write body (use Code-node pattern per project conventions)\nconst airtable_body = {\n  records: [{\n    fields: {\n      requisition_id: enriched.requisition_id,\n      department: enriched.department,\n      item_id: enriched.item_id,\n      item_name: enriched.item_name,\n      category: enriched.category,\n      warehouse: enriched.warehouse,\n      quantity_requested: enriched.quantity_requested,\n      unit: enriched.unit,\n      urgency: enriched.urgency,\n      requester: enriched.requester,\n      justification: enriched.justification,\n      status: enriched.status,\n      submitted_at: enriched.submitted_at,\n      current_stock: enriched.current_stock,\n      par_level: enriched.par_level,\n      negative_stock: enriched.negative_stock,\n      vendor_id: enriched.vendor_id,\n      vendor_name: enriched.vendor_name,\n      vendor_email: enriched.vendor_email,\n      unit_cost: enriched.unit_cost,\n      contracted_price: enriched.contracted_price,\n      price_source: enriched.price_source,\n      total_amount: enriched.total_amount,\n      gl_code: enriched.gl_code,\n      approval_tier: enriched.approval_tier,\n      enrichment_error: enriched.enrichment_error\n    }\n  }]\n};\n\nreturn [{ json: { ...enriched, airtable_body } }];"
+      },
+      "id": "f96bfe40-ab83-464f-92c7-77158080e809",
+      "name": "Build Enriched Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Requisition_Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.airtable_body) }}",
+        "options": {}
+      },
+      "id": "4bdb960f-6b1c-47af-b6d3-1c4a341d96a3",
+      "name": "Save to Requisition_Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        96
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "enrich-err-1",
+              "leftValue": "={{ $('Build Enriched Payload').first().json.enrichment_error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0579e008-1f93-494b-afc1-1363175e9d4f",
+      "name": "Enrichment Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: 'enrichment_failed', detail: $('Build Enriched Payload').first().json.enrichment_error, requisition_id: $('Build Enriched Payload').first().json.requisition_id }) }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "738feefd-ad74-46d7-85fb-9e98b3d1d53a",
+      "name": "Enrichment Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2240,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, requisition_id: $('Build Enriched Payload').first().json.requisition_id, total_amount: $('Build Enriched Payload').first().json.total_amount, approval_tier: $('Build Enriched Payload').first().json.approval_tier, status: 'submitted_for_validation' }) }}",
+        "options": {}
+      },
+      "id": "f47a4455-3c18-46c9-bbc4-db12654d9160",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2240,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Forward enriched requisition payload to WF04 (AI Validation)\nconst input = $input.first().json;\nconst record = input.records ? input.records[0] : input;\nconst r = $('Build Enriched Payload').first().json;\n\nreturn [{ json: {\n  requisition_id: r.requisition_id,\n  airtable_record_id: record.id || '',\n\n  department: r.department,\n  requester: r.requester,\n  urgency: r.urgency,\n  justification: r.justification,\n  quantity_requested: r.quantity_requested,\n  unit: r.unit,\n\n  item_id: r.item_id,\n  item_name: r.item_name,\n  category: r.category,\n  warehouse: r.warehouse,\n  current_stock: r.current_stock,\n  par_level: r.par_level,\n  reorder_point: r.reorder_point,\n  negative_stock: r.negative_stock,\n\n  vendor_id: r.vendor_id,\n  vendor_name: r.vendor_name,\n  vendor_email: r.vendor_email,\n  vendor_payment_terms: r.vendor_payment_terms,\n  vendor_approved_status: r.vendor_approved_status,\n\n  unit_cost: r.unit_cost,\n  contracted_price: r.contracted_price,\n  price_source: r.price_source,\n  total_amount: r.total_amount,\n\n  gl_code: r.gl_code,\n  gl_name: r.gl_name,\n  budget_monthly: r.budget_monthly,\n  approval_tier: r.approval_tier\n} }];"
+      },
+      "id": "3b654d0b-6004-4dc9-af9b-1247cfc9fcdb",
+      "name": "Prepare WF04 Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "P5Nx0DMD2UiVbTVA",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/P5Nx0DMD2UiVbTVA"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2688,
+        96
+      ],
+      "id": "e7a2e4fb-5a7e-4fe0-9be0-953138624ec0",
+      "name": "Call '04 - AI Validation'"
+    }
+  ],
+  "connections": {
+    "Webhook - Requisition": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Validation Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation Error?": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lookup Inventory Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Inventory Item": {
+      "main": [
+        [
+          {
+            "node": "Lookup Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Vendor": {
+      "main": [
+        [
+          {
+            "node": "Lookup Contract Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Contract Price": {
+      "main": [
+        [
+          {
+            "node": "Lookup GL Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup GL Code": {
+      "main": [
+        [
+          {
+            "node": "Build Enriched Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Enriched Payload": {
+      "main": [
+        [
+          {
+            "node": "Save to Requisition_Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Requisition_Log": {
+      "main": [
+        [
+          {
+            "node": "Enrichment Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrichment Error?": {
+      "main": [
+        [
+          {
+            "node": "Enrichment Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare WF04 Input",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare WF04 Input": {
+      "main": [
+        [
+          {
+            "node": "Call '04 - AI Validation'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {
+    "When clicking \"Test workflow\"": [
+      {
+        "json": {
+          "body": {
+            "department": "Kitchen",
+            "item_id": "PROT-001",
+            "item_name": "Pileca prsa",
+            "quantity_requested": 50,
+            "unit": "kg",
+            "urgency": "high",
+            "requester": "Vasilije",
+            "justification": "Vjencanje subota 120 pax, trenutni stok ispod para"
+          }
+        }
+      }
+    ]
+  },
+  "versionId": "d1bf7d64-bd17-4ec3-be53-48717d5a93d3",
+  "activeVersionId": null,
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-22T05:16:38.358Z",
+      "createdAt": "2026-04-22T05:16:38.358Z",
+      "role": "workflow:editor",
+      "workflowId": "yFQBA96Hc4lKJrE9",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-19T03:21:42.605Z",
+      "createdAt": "2026-04-19T03:21:42.605Z",
+      "role": "workflow:owner",
+      "workflowId": "yFQBA96Hc4lKJrE9",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": null
+}

@@ -1,0 +1,509 @@
+{
+  "updatedAt": "2026-04-19T03:40:54.000Z",
+  "createdAt": "2026-04-10T19:35:25.487Z",
+  "id": "P5Nx0DMD2UiVbTVA",
+  "name": "04 - AI Validation",
+  "description": null,
+  "active": false,
+  "isArchived": true,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -16,
+        192
+      ],
+      "id": "d58e0807-bc25-4d96-836f-bf384d70529d",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {},
+      "id": "a2fdc803-df0d-4cc9-820b-b07ce27bafce",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Inventory%20with%20Par%20Levels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "=FIND(LOWER(\"{{ $json.item_name }}\"),LOWER({Name}))>0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "98a908cb-b1d5-4f49-99d4-00ffee32bfbe",
+      "name": "Get Inventory Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare context for AI validation\nlet req;\ntry {\n  req = $('When Executed by Another Workflow').first().json;\n} catch (e) {\n  req = $('When clicking \"Test workflow\"').first().json;\n}\nconst invResp = $('Get Inventory Data').first().json;\nconst inv = invResp.records?.[0]?.fields || {};\n\nreturn [{ json: {\n  requisition_id: req.requisition_id,\n  item_name: req.item_name,\n  department: req.department,\n  quantity_requested: req.quantity_requested,\n  unit: req.unit || 'each',\n  urgency: req.urgency,\n  requester: req.requester,\n  justification: req.justification,\n  airtable_record_id: req.airtable_record_id || '',\n  current_stock: inv['Current Stock'] || 0,\n  par_level: inv['Par Level'] || 0,\n  reorder_point: inv['Reorder Point'] || 0,\n  unit_cost: inv['Unit Cost'] || 0,\n  inventory_found: invResp.records?.length > 0\n} }];"
+      },
+      "id": "c84dd944-8c39-40c5-a2e6-f3226d20500b",
+      "name": "Code - Prepare AI Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 500, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are a hotel procurement validation AI. Evaluate purchase requisitions against inventory data. Decide: APPROVE (quantity reasonable given stock and par levels), REDUCE (partially approve with reduced quantity), REJECT (unnecessary or inappropriate), or FLAG (data integrity issue like negative stock). If current_stock is negative, always FLAG — do not approve or reject. Respond ONLY in valid JSON. No markdown, no backticks. Raw JSON only.' }, { role: 'user', content: 'Validate this requisition:\\n\\nItem: ' + $json.item_name + '\\nDepartment: ' + $json.department + '\\nQuantity Requested: ' + $json.quantity_requested + ' ' + $json.unit + '\\nUrgency: ' + $json.urgency + '\\nRequester: ' + $json.requester + '\\nJustification: ' + $json.justification + '\\n\\nInventory Data:\\nCurrent Stock: ' + $json.current_stock + '\\nPar Level: ' + $json.par_level + '\\nReorder Point: ' + $json.reorder_point + '\\nUnit Cost: $' + $json.unit_cost + '\\nItem found in inventory: ' + $json.inventory_found + '\\n\\nRespond in JSON:\\n{\"decision\": \"APPROVE|REDUCE|REJECT|FLAG\", \"approved_quantity\": number, \"reason\": \"explanation\", \"confidence\": 0.0-1.0, \"flag_reason\": \"if FLAG, explain why\"}' }] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        192
+      ],
+      "id": "daf7791b-fda8-464e-9650-5a28fb179038",
+      "name": "AI - Validate Requisition",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst content = response.choices[0].message.content;\nconst parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\nconst context = $('Code - Prepare AI Context').first().json;\n\nreturn [{ json: {\n  ...context,\n  decision: parsed.decision,\n  approved_quantity: parsed.approved_quantity || 0,\n  reason: parsed.reason || '',\n  confidence: parsed.confidence || 0.5,\n  flag_reason: parsed.flag_reason || null,\n  ai_decision_json: JSON.stringify(parsed)\n} }];"
+      },
+      "id": "a985f415-ef17-4e41-b1fa-076f146c221e",
+      "name": "Parse AI Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Airtable update and audit payloads\nconst data = $input.first().json;\n\nconst statusMap = { 'APPROVE': 'approved', 'REDUCE': 'reduced', 'REJECT': 'rejected', 'FLAG': 'flagged' };\n\nconst updateBody = JSON.stringify({ records: [{ fields: {\n  requisition_id: data.requisition_id,\n  status: statusMap[data.decision] || 'pending_validation',\n  ai_decision: data.ai_decision_json\n} }] });\n\nconst auditBody = JSON.stringify({ records: [{ fields: {\n  reference_id: data.requisition_id,\n  event_type: 'Approved',\n  actor: 'AI',\n  details: data.decision + ': ' + data.reason + ' | Qty: ' + data.approved_quantity + '/' + data.quantity_requested + ' | Confidence: ' + data.confidence\n} }] });\n\nreturn [{ json: { ...data, update_body: updateBody, audit_body: auditBody } }];"
+      },
+      "id": "ca04ec01-661d-488e-9251-e0b7a5fd60c9",
+      "name": "Code - Prepare Payloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Requisition_Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.update_body }}",
+        "options": {}
+      },
+      "id": "bb06e69a-04d7-4d17-b7ce-bd3667a6659b",
+      "name": "Update Requisition Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1328,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Code - Prepare Payloads').first().json.audit_body }}",
+        "options": {}
+      },
+      "id": "203c3e21-099f-430e-a896-e062f1ece534",
+      "name": "Airtable - Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1552,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $('Parse AI Decision').first().json.decision }}",
+              "rightValue": "APPROVE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "2b9f5021-8f4e-44a6-bfb4-e008fdb37e7e",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1776,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=✅ *Requisition Approved by AI*\n\nItem: {{ $('Parse AI Decision').first().json.item_name }}\nQty: {{ $('Parse AI Decision').first().json.approved_quantity }} {{ $('Parse AI Decision').first().json.unit }}\nDepartment: {{ $('Parse AI Decision').first().json.department }}\nRequester: {{ $('Parse AI Decision').first().json.requester }}\nReason: {{ $('Parse AI Decision').first().json.reason }}",
+        "otherOptions": {}
+      },
+      "id": "7d5f7fc6-8dd7-4229-b2e9-33d308711812",
+      "name": "Slack - Approved",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1984,
+        80
+      ],
+      "webhookId": "79d35345-4c40-47f7-aca0-f2caf56f0917",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=🚫 *Requisition {{ $('Parse AI Decision').first().json.decision }} by AI*\n\nItem: {{ $('Parse AI Decision').first().json.item_name }}\nDepartment: {{ $('Parse AI Decision').first().json.department }}\nReason: {{ $('Parse AI Decision').first().json.reason }}",
+        "otherOptions": {}
+      },
+      "id": "e830006b-f1d3-4847-91bd-7621df0b69b0",
+      "name": "Slack - Rejected/Flagged",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1984,
+        304
+      ],
+      "webhookId": "9d2d2ee5-29e5-4da0-9ade-74ee5be23950",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "f3Bknfh10kO3O46U",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/f3Bknfh10kO3O46U"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2192,
+        80
+      ],
+      "id": "ad8a7496-9619-4c93-af49-15f494f4e9a3",
+      "name": "Call '06 - PO Creation & Approval FIXED'"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Get Inventory Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Get Inventory Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Inventory Data": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare AI Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare AI Context": {
+      "main": [
+        [
+          {
+            "node": "AI - Validate Requisition",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Validate Requisition": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Decision": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Payloads": {
+      "main": [
+        [
+          {
+            "node": "Update Requisition Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Requisition Status": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Audit Trail": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Slack - Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack - Rejected/Flagged",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Approved": {
+      "main": [
+        [
+          {
+            "node": "Call '06 - PO Creation & Approval FIXED'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "When clicking \"Test workflow\"": [
+      {
+        "json": {
+          "requisition_id": "REQ-2026-5001",
+          "department": "Kitchen",
+          "item_name": "Beef Tenderloin",
+          "quantity_requested": 25,
+          "unit": "lb",
+          "urgency": "high",
+          "requester": "Chef Marco Rivera",
+          "justification": "Weekend banquet event for 150 guests requires premium beef tenderloin. Current stock is below par level and must be replenished before Friday service.",
+          "airtable_record_id": "rec0dTsogC692xVCT"
+        }
+      }
+    ]
+  },
+  "versionId": "4ca6c8ca-e35a-4510-aee5-b5289381bec5",
+  "activeVersionId": null,
+  "versionCounter": 22,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:22:18.690Z",
+      "createdAt": "2026-04-12T00:22:18.690Z",
+      "role": "workflow:editor",
+      "workflowId": "P5Nx0DMD2UiVbTVA",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:35:25.489Z",
+      "createdAt": "2026-04-10T19:35:25.489Z",
+      "role": "workflow:owner",
+      "workflowId": "P5Nx0DMD2UiVbTVA",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": null
+}

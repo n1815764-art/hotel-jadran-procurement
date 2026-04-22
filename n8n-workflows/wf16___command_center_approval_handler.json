@@ -1,0 +1,2114 @@
+{
+  "updatedAt": "2026-04-18T00:47:17.328Z",
+  "createdAt": "2026-04-17T23:06:48.647Z",
+  "id": "RIiDJwBfD4XfVlaj",
+  "name": "WF16 — Command Center Approval Handler",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "command-center-approve",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "595fc72a-4b43-4960-b580-2a9ed54c116e",
+      "name": "Webhook - Command Center Approval",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -944,
+        304
+      ],
+      "webhookId": "wf16-command-center-approve"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize payload — accepts two formats:\n//   1. Command Center JSON: { type, record_id, reference_id, action, approved_by, notes }\n//   2. Slack block_actions: { payload: \"{\\\"actions\\\":[{\\\"value\\\":\\\"approve_po_PO-2026-0047\\\"}],...}\" }\n// Outputs a single canonical shape for downstream nodes.\n\nconst body = $input.first().json.body || $input.first().json;\n\nlet normalized = {\n  type: null,             // 'po' | 'batch'\n  action: null,           // 'approve' | 'reject'\n  reference_id: null,     // 'PO-2026-0047' or 'BATCH-2026-W15'\n  record_id: null,        // Airtable record id (optional; Command Center sends, Slack doesn't)\n  approved_by: null,      // Human-readable name of approver\n  notes: null,            // Optional rejection reason or approver note\n  source: 'command_center', // 'command_center' | 'slack'\n  slack_response_url: null,\n  slack_message_ts: null,\n  slack_channel: null\n};\n\n// Detect format\nconst isSlack = !!body.payload || (body.actions && Array.isArray(body.actions));\n\nif (isSlack) {\n  // Parse Slack interactive payload\n  let slackPayload;\n  try {\n    slackPayload = typeof body.payload === 'string' ? JSON.parse(body.payload) : (body.payload || body);\n  } catch (e) {\n    throw new Error('Invalid Slack payload: ' + e.message);\n  }\n\n  const actionValue = slackPayload.actions?.[0]?.value || '';\n  const actionId = slackPayload.actions?.[0]?.action_id || '';\n\n  // action_id convention: \"approve_po\" | \"reject_po\" | \"approve_batch\" | \"reject_batch\"\n  // action value convention: the reference_id (e.g., \"PO-2026-0047\" or \"BATCH-2026-W15\")\n  // Legacy value format: \"approve_BATCH-2026-W15\" (WF14 existing pattern)\n\n  let parsedAction, parsedType, parsedRef;\n\n  if (actionId && actionId.includes('_')) {\n    // New pattern: action_id = \"approve_po\" and value = reference_id\n    const parts = actionId.split('_');\n    parsedAction = parts[0];\n    parsedType = parts[1];\n    parsedRef = actionValue;\n  } else if (actionValue.startsWith('approve_') || actionValue.startsWith('reject_')) {\n    // Legacy WF14 pattern: value = \"approve_BATCH-2026-W15\"\n    const underscoreIdx = actionValue.indexOf('_');\n    parsedAction = actionValue.slice(0, underscoreIdx);\n    parsedRef = actionValue.slice(underscoreIdx + 1);\n    // Infer type from reference_id prefix\n    parsedType = parsedRef.startsWith('PO-') ? 'po' : (parsedRef.startsWith('BATCH-') ? 'batch' : 'unknown');\n  } else {\n    throw new Error('Could not parse Slack action: action_id=' + actionId + ' value=' + actionValue);\n  }\n\n  normalized.type = parsedType;\n  normalized.action = parsedAction;\n  normalized.reference_id = parsedRef;\n  normalized.approved_by = slackPayload.user?.name || slackPayload.user?.username || 'Slack User';\n  normalized.source = 'slack';\n  normalized.slack_response_url = slackPayload.response_url || null;\n  normalized.slack_message_ts = slackPayload.message?.ts || slackPayload.container?.message_ts || null;\n  normalized.slack_channel = slackPayload.channel?.id || null;\n} else {\n  // Command Center JSON format\n  normalized.type = (body.type || '').toLowerCase();\n  normalized.action = (body.action || '').toLowerCase();\n  normalized.reference_id = body.reference_id || null;\n  normalized.record_id = body.record_id || null;\n  normalized.approved_by = body.approved_by || 'Unknown';\n  normalized.notes = body.notes || null;\n  normalized.source = 'command_center';\n}\n\n// Validate\nif (!['po', 'batch'].includes(normalized.type)) {\n  throw new Error('Invalid type. Expected \"po\" or \"batch\", got: ' + normalized.type);\n}\nif (!['approve', 'reject'].includes(normalized.action)) {\n  throw new Error('Invalid action. Expected \"approve\" or \"reject\", got: ' + normalized.action);\n}\nif (!normalized.reference_id) {\n  throw new Error('Missing reference_id');\n}\n\nnormalized.timestamp = new Date().toISOString();\nnormalized.response_message = 'Approval received for ' + normalized.reference_id + ' (' + normalized.action + ')';\n\nreturn [{ json: normalized }];\n"
+      },
+      "id": "a49d8104-9b2f-4e67-bac1-f87c82f599f8",
+      "name": "Code - Normalize & Validate Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, type: $json.type, action: $json.action, reference_id: $json.reference_id, approved_by: $json.approved_by, timestamp: $json.timestamp, message: $json.response_message }) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "90227598-c2ab-4ebf-87a9-3ffd5901c38c",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -496,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "route-po-approve",
+                    "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.type }}",
+                    "rightValue": "po",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "route-approve",
+                    "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.action }}",
+                    "rightValue": "approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "po_approve"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "route-po-reject",
+                    "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.type }}",
+                    "rightValue": "po",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "route-reject",
+                    "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.action }}",
+                    "rightValue": "reject",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "po_reject"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "route-batch-approve",
+                    "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.type }}",
+                    "rightValue": "batch",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "route-approve-2",
+                    "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.action }}",
+                    "rightValue": "approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "batch_approve"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "route-batch-reject",
+                    "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.type }}",
+                    "rightValue": "batch",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "route-reject-2",
+                    "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.action }}",
+                    "rightValue": "reject",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "batch_reject"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fc3a4d9c-44ab-4842-b343-4d2d0054f5bb",
+      "name": "Switch - Route by type+action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -288,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log?filterByFormula={{ encodeURIComponent(\"{po_number}='\" + $('Code - Normalize & Validate Payload').first().json.reference_id + \"'\") }}&maxRecords=1",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "65f57088-68a6-44dd-9c5d-68223f6f450c",
+      "name": "PO/APPROVE — Lookup PO record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract PO details from lookup result\nconst resp = $input.first().json;\nconst records = resp.records || [];\n\nif (records.length === 0) {\n  const refId = $('Code - Normalize & Validate Payload').first().json.reference_id;\n  throw new Error('PO not found: ' + refId);\n}\n\nconst rec = records[0];\nconst f = rec.fields || {};\nconst ctx = $('Code - Normalize & Validate Payload').first().json;\n\nreturn [{\n  json: {\n    airtable_record_id: rec.id,\n    po_number: f.po_number,\n    vendor_name: f.vendor_name,\n    vendor_email: f.vendor_email || 'n1815764@gmail.com',\n    department: f.department,\n    total_amount: parseFloat(f.total_amount) || 0,\n    items_json: f.items_json || '[]',\n    gl_account: f.gl_account || '',\n    source: f.source || 'Manual',\n    requester: f.requester || 'System',\n    current_status: f.status,\n    approved_by: ctx.approved_by,\n    approval_source: ctx.source,\n    notes: ctx.notes,\n    approval_timestamp: ctx.timestamp,\n    update_body: JSON.stringify({ fields: { status: 'Approved', approved_by: ctx.approved_by, approved_date: new Date().toISOString().split('T')[0] } })\n  }\n}];"
+      },
+      "id": "5f685e33-bd1b-4a8a-be22-73d3427e88a5",
+      "name": "PO/APPROVE — Extract PO data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log/{{ $json.airtable_record_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.update_body }}",
+        "options": {}
+      },
+      "id": "14ecb977-983a-470f-ada1-9d7f9a9ccb73",
+      "name": "PO/APPROVE — Update status → Approved",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 700, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are a hotel procurement AI at Heritage Grand Hotel Perast (Hotel Jadran). Generate a professional purchase order email in BCS (Bosnian/Croatian/Serbian) to send to the vendor. Include: PO number, hotel name, line items with quantities and unit prices, total in EUR formatted as European (€1.850,00), payment terms, delivery address. Sign as \"Služba nabavke, Hotel Jadran\". Respond ONLY in valid JSON: {\"subject\": \"...\", \"body\": \"...\"}. No markdown, no backticks. The body should be plain text, not HTML.' }, { role: 'user', content: 'Generate PO email:\\nPO: ' + $('PO/APPROVE — Extract PO data').first().json.po_number + '\\nVendor: ' + $('PO/APPROVE — Extract PO data').first().json.vendor_name + '\\nLine Items: ' + $('PO/APPROVE — Extract PO data').first().json.items_json + '\\nTotal: €' + $('PO/APPROVE — Extract PO data').first().json.total_amount + '\\nDepartment: ' + $('PO/APPROVE — Extract PO data').first().json.department + '\\nApproved by: ' + $('PO/APPROVE — Extract PO data').first().json.approved_by }] }) }}",
+        "options": {}
+      },
+      "id": "df5fab61-4203-41bf-b2af-81544561cb21",
+      "name": "PO/APPROVE — Kimi: Draft vendor email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        608,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Kimi's JSON response and build HTML email\nconst resp = $input.first().json;\nlet content = resp.choices?.[0]?.message?.content || '{}';\ncontent = content.replace(/```json|```/g, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(content);\n} catch (e) {\n  // Fallback if Kimi returns malformed JSON\n  const po = $('PO/APPROVE — Extract PO data').first().json;\n  parsed = {\n    subject: 'Nalog za nabavku — ' + po.po_number,\n    body: 'Poštovani,\\n\\nU prilogu Vam dostavljamo nalog za nabavku ' + po.po_number + ' u ukupnoj vrijednosti €' + po.total_amount.toFixed(2) + '.\\n\\nS poštovanjem,\\nSlužba nabavke, Hotel Jadran'\n  };\n}\n\nconst po = $('PO/APPROVE — Extract PO data').first().json;\nconst items = JSON.parse(po.items_json);\n\nconst fmtEur = (n) => '€' + parseFloat(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\n\n// Build polished HTML\nlet html = '<div style=\"font-family: Arial, sans-serif; max-width: 700px; color: #222;\">';\nhtml += '<div style=\"background: #1a1a2e; color: white; padding: 20px;\">';\nhtml += '<h2 style=\"margin:0;\">Hotel Jadran — Narudžbenica</h2>';\nhtml += '<p style=\"margin:5px 0 0;\">PO: ' + po.po_number + ' | Odobrio: ' + po.approved_by + ' | Datum: ' + new Date().toLocaleDateString('de-DE') + '</p>';\nhtml += '</div>';\nhtml += '<div style=\"padding: 20px; white-space: pre-wrap;\">' + (parsed.body || '').replace(/\\n/g, '<br>') + '</div>';\nhtml += '<table style=\"width:100%; border-collapse:collapse; margin-top:10px;\">';\nhtml += '<thead><tr style=\"background:#f0f0f0;\">';\nhtml += '<th style=\"padding:10px; text-align:left; border-bottom:2px solid #1a1a2e;\">Artikal</th>';\nhtml += '<th style=\"padding:10px; text-align:right; border-bottom:2px solid #1a1a2e;\">Količina</th>';\nhtml += '<th style=\"padding:10px; text-align:right; border-bottom:2px solid #1a1a2e;\">Jedinična cijena</th>';\nhtml += '<th style=\"padding:10px; text-align:right; border-bottom:2px solid #1a1a2e;\">Iznos</th>';\nhtml += '</tr></thead><tbody>';\nfor (const it of items) {\n  const qty = parseFloat(it.quantity) || 0;\n  const price = parseFloat(it.unit_price) || 0;\n  const sub = qty * price;\n  html += '<tr>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee;\">' + (it.item_name || '') + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee; text-align:right;\">' + qty + ' ' + (it.unit || '') + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee; text-align:right;\">' + fmtEur(price) + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee; text-align:right;\">' + fmtEur(sub) + '</td>';\n  html += '</tr>';\n}\nhtml += '</tbody><tfoot><tr style=\"background:#1a1a2e; color:white; font-weight:bold;\">';\nhtml += '<td colspan=\"3\" style=\"padding:10px;\">UKUPNO</td>';\nhtml += '<td style=\"padding:10px; text-align:right;\">' + fmtEur(po.total_amount) + '</td>';\nhtml += '</tr></tfoot></table>';\nhtml += '<p style=\"margin-top:20px; color:#666; font-size:11px;\">Ovaj nalog je automatski generisan i odobren od strane ' + po.approved_by + '. Referenca: ' + po.po_number + '</p>';\nhtml += '</div>';\n\nreturn [{\n  json: {\n    email_subject: parsed.subject || ('Narudžbenica ' + po.po_number + ' — Hotel Jadran'),\n    email_body_html: html,\n    email_body_text: parsed.body || '',\n    vendor_email: po.vendor_email,\n    po_number: po.po_number,\n    vendor_name: po.vendor_name,\n    total_amount: po.total_amount,\n    airtable_record_id: po.airtable_record_id,\n    approved_by: po.approved_by,\n    approval_source: po.approval_source\n  }\n}];"
+      },
+      "id": "9cdc8fc6-648a-4f70-8d0d-1b5d9c434fe0",
+      "name": "PO/APPROVE — Parse Kimi + Build HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n1815764@gmail.com",
+        "toEmail": "={{ $json.vendor_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "html": "={{ $json.email_body_html }}",
+        "options": {
+          "appendAttribution": false,
+          "replyTo": "n1815764@gmail.com"
+        }
+      },
+      "id": "f03b397c-3afa-41f5-9ce9-d8885edd30b7",
+      "name": "PO/APPROVE — Send PO to vendor",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1008,
+        0
+      ],
+      "webhookId": "79d33e96-9ff8-488d-9da7-0c9a79c7cddf",
+      "credentials": {
+        "smtp": {
+          "id": "gMeJAzEnruR2Zuau",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log/{{ $('PO/APPROVE — Parse Kimi + Build HTML').first().json.airtable_record_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ fields: { status: 'Sent to Vendor' } }) }}",
+        "options": {}
+      },
+      "id": "f374155b-4968-4cca-a0d4-b2d95e37cb2e",
+      "name": "PO/APPROVE — Update status → Sent to Vendor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ fields: { reference_id: $('PO/APPROVE — Parse Kimi + Build HTML').first().json.po_number, event_type: 'PO_APPROVED', actor: $('PO/APPROVE — Parse Kimi + Build HTML').first().json.approved_by, details: 'PO odobren iz ' + $('PO/APPROVE — Parse Kimi + Build HTML').first().json.approval_source + ' i poslan vendoru ' + $('PO/APPROVE — Parse Kimi + Build HTML').first().json.vendor_name, amount: $('PO/APPROVE — Parse Kimi + Build HTML').first().json.total_amount } }] }) }}",
+        "options": {}
+      },
+      "id": "34f9362c-3baa-4d2e-ba9e-36df305c927e",
+      "name": "PO/APPROVE — Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1408,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log?filterByFormula={{ encodeURIComponent(\"{po_number}='\" + $('Code - Normalize & Validate Payload').first().json.reference_id + \"'\") }}&maxRecords=1",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "80b73e8f-89ea-4e1b-8fbf-f090c639ab1a",
+      "name": "PO/REJECT — Lookup PO record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract PO details for rejection\nconst resp = $input.first().json;\nconst records = resp.records || [];\n\nif (records.length === 0) {\n  const refId = $('Code - Normalize & Validate Payload').first().json.reference_id;\n  throw new Error('PO not found: ' + refId);\n}\n\nconst rec = records[0];\nconst f = rec.fields || {};\nconst ctx = $('Code - Normalize & Validate Payload').first().json;\n\nreturn [{\n  json: {\n    airtable_record_id: rec.id,\n    po_number: f.po_number,\n    vendor_name: f.vendor_name,\n    total_amount: parseFloat(f.total_amount) || 0,\n    rejected_by: ctx.approved_by,\n    rejection_source: ctx.source,\n    rejection_reason: ctx.notes || 'Odbijeno bez komentara',\n    update_body: JSON.stringify({ fields: { status: 'Cancelled', approved_by: ctx.approved_by, approval_date: new Date().toISOString().split('T')[0] } })\n  }\n}];"
+      },
+      "id": "6000d0e4-e2b2-42c2-89a4-c5dff9dfd366",
+      "name": "PO/REJECT — Extract PO data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log/{{ $json.airtable_record_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.update_body }}",
+        "options": {}
+      },
+      "id": "3e97aa06-0401-4f63-bc55-64e676965109",
+      "name": "PO/REJECT — Update status → Cancelled",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ fields: { reference_id: $('PO/REJECT — Extract PO data').first().json.po_number, event_type: 'PO_REJECTED', actor: $('PO/REJECT — Extract PO data').first().json.rejected_by, details: 'PO odbijen iz ' + $('PO/REJECT — Extract PO data').first().json.rejection_source + '. Razlog: ' + $('PO/REJECT — Extract PO data').first().json.rejection_reason, amount: $('PO/REJECT — Extract PO data').first().json.total_amount } }] }) }}",
+        "options": {}
+      },
+      "id": "1e492a95-0ee6-4b55-b01c-7ea11cbad115",
+      "name": "PO/REJECT — Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        608,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblKFEvMbOobm9Y9X",
+          "mode": "id"
+        },
+        "filterByFormula": "={batch_id} = '{{ $('Code - Normalize & Validate Payload').first().json.reference_id }}'",
+        "options": {}
+      },
+      "id": "88434b68-a75d-4000-94b1-e4ea57ef3213",
+      "name": "BATCH/APPROVE — Lookup batch record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        400
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract batch details for approval\nconst batchRecord = $input.first().json;\nconst f = batchRecord.fields || batchRecord;\nconst ctx = $('Code - Normalize & Validate Payload').first().json;\n\nif (!f.batch_id) {\n  throw new Error('Batch not found: ' + ctx.reference_id);\n}\n\nconst invoicesJson = JSON.parse(f.invoices_json || '[]');\n\nreturn [{\n  json: {\n    airtable_record_id: batchRecord.id,\n    batch_id: f.batch_id,\n    total_amount: parseFloat(f.total_amount) || 0,\n    invoices: invoicesJson,\n    invoice_count: invoicesJson.length,\n    approved_by: ctx.approved_by,\n    approval_source: ctx.source\n  }\n}];"
+      },
+      "id": "4e1cae9e-7ad0-44f9-9575-490af374093f",
+      "name": "BATCH/APPROVE — Extract batch data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblKFEvMbOobm9Y9X",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.airtable_record_id }}",
+            "status": "Approved",
+            "approved_by": "={{ $json.approved_by }}",
+            "approved_date": "={{ new Date().toISOString().split('T')[0] }}"
+          },
+          "matchingColumns": [
+            "id"
+          ]
+        },
+        "options": {}
+      },
+      "id": "60a3de65-9bb7-43a4-892d-61ecbb471286",
+      "name": "BATCH/APPROVE — Update status → Approved",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        400,
+        400
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build payment instruction email HTML\nconst data = $('BATCH/APPROVE — Extract batch data').first().json;\nconst fmtEur = (n) => '€' + parseFloat(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\n\nlet html = '<div style=\"font-family: Arial, sans-serif; max-width: 700px; color: #222;\">';\nhtml += '<div style=\"background: #1a1a2e; color: white; padding: 20px;\">';\nhtml += '<h2 style=\"margin:0;\">Hotel Jadran — Nalog za plaćanje</h2>';\nhtml += '<p style=\"margin:5px 0 0;\">Batch: ' + data.batch_id + ' | Odobrio: ' + data.approved_by + ' | Izvor: ' + (data.approval_source === 'command_center' ? 'Command Center' : 'Slack') + ' | Datum: ' + new Date().toLocaleDateString('de-DE') + '</p>';\nhtml += '</div>';\nhtml += '<table style=\"width:100%; border-collapse:collapse; margin-top:20px;\"><thead><tr style=\"background:#f0f0f0;\">';\nhtml += '<th style=\"padding:10px; text-align:left;\">Dobavljač</th>';\nhtml += '<th style=\"padding:10px; text-align:left;\">Br. fakture</th>';\nhtml += '<th style=\"padding:10px; text-align:left;\">PO</th>';\nhtml += '<th style=\"padding:10px; text-align:right;\">Iznos (EUR)</th>';\nhtml += '</tr></thead><tbody>';\nfor (const inv of data.invoices) {\n  html += '<tr>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee;\">' + (inv.vendor_name || '-') + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee;\">' + (inv.vendor_invoice_number || '-') + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee;\">' + (inv.po_number || '-') + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee; text-align:right;\">' + fmtEur(inv.amount || 0) + '</td>';\n  html += '</tr>';\n}\nhtml += '</tbody><tfoot><tr style=\"background:#1a1a2e; color:white; font-weight:bold;\">';\nhtml += '<td colspan=\"3\" style=\"padding:10px;\">UKUPNO ZA PLAĆANJE</td>';\nhtml += '<td style=\"padding:10px; text-align:right;\">' + fmtEur(data.total_amount) + '</td>';\nhtml += '</tr></tfoot></table>';\nhtml += '<p style=\"margin-top:20px; color:#666; font-size:12px;\">Ovaj nalog je automatski generisan. Batch ID: ' + data.batch_id + '</p>';\nhtml += '</div>';\n\nreturn [{\n  json: {\n    batch_id: data.batch_id,\n    total_amount: data.total_amount,\n    invoice_count: data.invoice_count,\n    approved_by: data.approved_by,\n    approval_source: data.approval_source,\n    email_subject: 'Nalog za plaćanje — Batch ' + data.batch_id + ' — ' + fmtEur(data.total_amount),\n    email_html: html\n  }\n}];"
+      },
+      "id": "acc99e20-5d2b-4a2b-a117-a0b6b9eb452c",
+      "name": "BATCH/APPROVE — Build payment email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n1815764@gmail.com",
+        "toEmail": "n1815764@gmail.com",
+        "subject": "={{ $json.email_subject }}",
+        "html": "={{ $json.email_html }}",
+        "options": {
+          "appendAttribution": false,
+          "replyTo": "n1815764@gmail.com"
+        }
+      },
+      "id": "d112f746-3c6d-4883-9441-8ac193aeedb1",
+      "name": "BATCH/APPROVE — Send payment instruction",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        800,
+        400
+      ],
+      "webhookId": "abc8b134-ce21-4d6e-88e1-7f37ba19aea2",
+      "credentials": {
+        "smtp": {
+          "id": "gMeJAzEnruR2Zuau",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ fields: { reference_id: $('BATCH/APPROVE — Build payment email').first().json.batch_id, event_type: 'PAYMENT_BATCH_APPROVED', actor: $('BATCH/APPROVE — Build payment email').first().json.approved_by, details: 'Batch odobren iz ' + $('BATCH/APPROVE — Build payment email').first().json.approval_source + '. Nalog za plaćanje poslan. ' + $('BATCH/APPROVE — Build payment email').first().json.invoice_count + ' faktura.', amount: $('BATCH/APPROVE — Build payment email').first().json.total_amount } }] }) }}",
+        "options": {}
+      },
+      "id": "26e3ac3b-b38a-489a-98dd-f1999a65384e",
+      "name": "BATCH/APPROVE — Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1008,
+        400
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblKFEvMbOobm9Y9X",
+          "mode": "id"
+        },
+        "filterByFormula": "={batch_id} = '{{ $('Code - Normalize & Validate Payload').first().json.reference_id }}'",
+        "options": {}
+      },
+      "id": "c08f82c8-8828-4ff8-b3b2-87f7a7c2dac4",
+      "name": "BATCH/REJECT — Lookup batch record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        608
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract rejected batch details\nconst batchRecord = $input.first().json;\nconst f = batchRecord.fields || batchRecord;\nconst ctx = $('Code - Normalize & Validate Payload').first().json;\n\nif (!f.batch_id) {\n  throw new Error('Batch not found: ' + ctx.reference_id);\n}\n\nconst invoicesJson = JSON.parse(f.invoices_json || '[]');\n\nreturn [{\n  json: {\n    airtable_record_id: batchRecord.id,\n    batch_id: f.batch_id,\n    total_amount: parseFloat(f.total_amount) || 0,\n    invoices: invoicesJson,\n    invoice_count: invoicesJson.length,\n    rejected_by: ctx.approved_by,\n    rejection_source: ctx.source,\n    rejection_reason: ctx.notes || 'Odbijeno bez komentara'\n  }\n}];"
+      },
+      "id": "f3d12ed6-1b62-4e21-bcae-1266cad774d3",
+      "name": "BATCH/REJECT — Extract batch data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblKFEvMbOobm9Y9X",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.airtable_record_id }}",
+            "status": "Rejected",
+            "approved_by": "={{ $json.rejected_by }}",
+            "approved_date": "={{ new Date().toISOString().split('T')[0] }}"
+          },
+          "matchingColumns": [
+            "id"
+          ]
+        },
+        "options": {}
+      },
+      "id": "6a238fb3-3762-49ba-bed4-8804970b93d8",
+      "name": "BATCH/REJECT — Update status → Rejected",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        400,
+        608
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ fields: { reference_id: $('BATCH/REJECT — Extract batch data').first().json.batch_id, event_type: 'PAYMENT_BATCH_REJECTED', actor: $('BATCH/REJECT — Extract batch data').first().json.rejected_by, details: 'Batch odbijen iz ' + $('BATCH/REJECT — Extract batch data').first().json.rejection_source + '. Razlog: ' + $('BATCH/REJECT — Extract batch data').first().json.rejection_reason + '. ' + $('BATCH/REJECT — Extract batch data').first().json.invoice_count + ' faktura vraćeno u status Unbatched.', amount: $('BATCH/REJECT — Extract batch data').first().json.total_amount } }] }) }}",
+        "options": {}
+      },
+      "id": "c35a7d03-eda1-4787-95f0-cffac36efccf",
+      "name": "BATCH/REJECT — Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        608,
+        608
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Command Center Approval": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize & Validate Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize & Validate Payload": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Switch - Route by type+action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Route by type+action": {
+      "main": [
+        [
+          {
+            "node": "PO/APPROVE — Lookup PO record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PO/REJECT — Lookup PO record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "BATCH/APPROVE — Lookup batch record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "BATCH/REJECT — Lookup batch record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO/APPROVE — Lookup PO record": {
+      "main": [
+        [
+          {
+            "node": "PO/APPROVE — Extract PO data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO/APPROVE — Extract PO data": {
+      "main": [
+        [
+          {
+            "node": "PO/APPROVE — Update status → Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO/APPROVE — Update status → Approved": {
+      "main": [
+        [
+          {
+            "node": "PO/APPROVE — Kimi: Draft vendor email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO/APPROVE — Kimi: Draft vendor email": {
+      "main": [
+        [
+          {
+            "node": "PO/APPROVE — Parse Kimi + Build HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO/APPROVE — Parse Kimi + Build HTML": {
+      "main": [
+        [
+          {
+            "node": "PO/APPROVE — Send PO to vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO/APPROVE — Send PO to vendor": {
+      "main": [
+        [
+          {
+            "node": "PO/APPROVE — Update status → Sent to Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO/APPROVE — Update status → Sent to Vendor": {
+      "main": [
+        [
+          {
+            "node": "PO/APPROVE — Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO/REJECT — Lookup PO record": {
+      "main": [
+        [
+          {
+            "node": "PO/REJECT — Extract PO data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO/REJECT — Extract PO data": {
+      "main": [
+        [
+          {
+            "node": "PO/REJECT — Update status → Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PO/REJECT — Update status → Cancelled": {
+      "main": [
+        [
+          {
+            "node": "PO/REJECT — Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BATCH/APPROVE — Lookup batch record": {
+      "main": [
+        [
+          {
+            "node": "BATCH/APPROVE — Extract batch data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BATCH/APPROVE — Extract batch data": {
+      "main": [
+        [
+          {
+            "node": "BATCH/APPROVE — Update status → Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BATCH/APPROVE — Update status → Approved": {
+      "main": [
+        [
+          {
+            "node": "BATCH/APPROVE — Build payment email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BATCH/APPROVE — Build payment email": {
+      "main": [
+        [
+          {
+            "node": "BATCH/APPROVE — Send payment instruction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BATCH/APPROVE — Send payment instruction": {
+      "main": [
+        [
+          {
+            "node": "BATCH/APPROVE — Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BATCH/REJECT — Lookup batch record": {
+      "main": [
+        [
+          {
+            "node": "BATCH/REJECT — Extract batch data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BATCH/REJECT — Extract batch data": {
+      "main": [
+        [
+          {
+            "node": "BATCH/REJECT — Update status → Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BATCH/REJECT — Update status → Rejected": {
+      "main": [
+        [
+          {
+            "node": "BATCH/REJECT — Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "0e7b0fe4-7e7d-4b4a-a85b-ad035902e4c9",
+  "activeVersionId": "0e7b0fe4-7e7d-4b4a-a85b-ad035902e4c9",
+  "versionCounter": 5,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-04-22T05:16:20.017Z",
+      "createdAt": "2026-04-22T05:16:20.017Z",
+      "role": "workflow:editor",
+      "workflowId": "RIiDJwBfD4XfVlaj",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-17T23:06:48.656Z",
+      "createdAt": "2026-04-17T23:06:48.656Z",
+      "role": "workflow:owner",
+      "workflowId": "RIiDJwBfD4XfVlaj",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-17T23:06:46.794Z",
+      "createdAt": "2026-04-17T23:06:46.794Z",
+      "id": "7NRdqGoLgeA0ZrnE",
+      "name": "approvals"
+    },
+    {
+      "updatedAt": "2026-04-17T23:06:46.858Z",
+      "createdAt": "2026-04-17T23:06:46.858Z",
+      "id": "jzpD5jRd3wlkyhU8",
+      "name": "command-center"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-04-22T05:15:56.000Z",
+    "createdAt": "2026-04-18T00:47:17.329Z",
+    "versionId": "0e7b0fe4-7e7d-4b4a-a85b-ad035902e4c9",
+    "workflowId": "RIiDJwBfD4XfVlaj",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "command-center-approve",
+          "responseMode": "responseNode",
+          "options": {
+            "allowedOrigins": "*"
+          }
+        },
+        "id": "595fc72a-4b43-4960-b580-2a9ed54c116e",
+        "name": "Webhook - Command Center Approval",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -944,
+          304
+        ],
+        "webhookId": "wf16-command-center-approve"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Normalize payload — accepts two formats:\n//   1. Command Center JSON: { type, record_id, reference_id, action, approved_by, notes }\n//   2. Slack block_actions: { payload: \"{\\\"actions\\\":[{\\\"value\\\":\\\"approve_po_PO-2026-0047\\\"}],...}\" }\n// Outputs a single canonical shape for downstream nodes.\n\nconst body = $input.first().json.body || $input.first().json;\n\nlet normalized = {\n  type: null,             // 'po' | 'batch'\n  action: null,           // 'approve' | 'reject'\n  reference_id: null,     // 'PO-2026-0047' or 'BATCH-2026-W15'\n  record_id: null,        // Airtable record id (optional; Command Center sends, Slack doesn't)\n  approved_by: null,      // Human-readable name of approver\n  notes: null,            // Optional rejection reason or approver note\n  source: 'command_center', // 'command_center' | 'slack'\n  slack_response_url: null,\n  slack_message_ts: null,\n  slack_channel: null\n};\n\n// Detect format\nconst isSlack = !!body.payload || (body.actions && Array.isArray(body.actions));\n\nif (isSlack) {\n  // Parse Slack interactive payload\n  let slackPayload;\n  try {\n    slackPayload = typeof body.payload === 'string' ? JSON.parse(body.payload) : (body.payload || body);\n  } catch (e) {\n    throw new Error('Invalid Slack payload: ' + e.message);\n  }\n\n  const actionValue = slackPayload.actions?.[0]?.value || '';\n  const actionId = slackPayload.actions?.[0]?.action_id || '';\n\n  // action_id convention: \"approve_po\" | \"reject_po\" | \"approve_batch\" | \"reject_batch\"\n  // action value convention: the reference_id (e.g., \"PO-2026-0047\" or \"BATCH-2026-W15\")\n  // Legacy value format: \"approve_BATCH-2026-W15\" (WF14 existing pattern)\n\n  let parsedAction, parsedType, parsedRef;\n\n  if (actionId && actionId.includes('_')) {\n    // New pattern: action_id = \"approve_po\" and value = reference_id\n    const parts = actionId.split('_');\n    parsedAction = parts[0];\n    parsedType = parts[1];\n    parsedRef = actionValue;\n  } else if (actionValue.startsWith('approve_') || actionValue.startsWith('reject_')) {\n    // Legacy WF14 pattern: value = \"approve_BATCH-2026-W15\"\n    const underscoreIdx = actionValue.indexOf('_');\n    parsedAction = actionValue.slice(0, underscoreIdx);\n    parsedRef = actionValue.slice(underscoreIdx + 1);\n    // Infer type from reference_id prefix\n    parsedType = parsedRef.startsWith('PO-') ? 'po' : (parsedRef.startsWith('BATCH-') ? 'batch' : 'unknown');\n  } else {\n    throw new Error('Could not parse Slack action: action_id=' + actionId + ' value=' + actionValue);\n  }\n\n  normalized.type = parsedType;\n  normalized.action = parsedAction;\n  normalized.reference_id = parsedRef;\n  normalized.approved_by = slackPayload.user?.name || slackPayload.user?.username || 'Slack User';\n  normalized.source = 'slack';\n  normalized.slack_response_url = slackPayload.response_url || null;\n  normalized.slack_message_ts = slackPayload.message?.ts || slackPayload.container?.message_ts || null;\n  normalized.slack_channel = slackPayload.channel?.id || null;\n} else {\n  // Command Center JSON format\n  normalized.type = (body.type || '').toLowerCase();\n  normalized.action = (body.action || '').toLowerCase();\n  normalized.reference_id = body.reference_id || null;\n  normalized.record_id = body.record_id || null;\n  normalized.approved_by = body.approved_by || 'Unknown';\n  normalized.notes = body.notes || null;\n  normalized.source = 'command_center';\n}\n\n// Validate\nif (!['po', 'batch'].includes(normalized.type)) {\n  throw new Error('Invalid type. Expected \"po\" or \"batch\", got: ' + normalized.type);\n}\nif (!['approve', 'reject'].includes(normalized.action)) {\n  throw new Error('Invalid action. Expected \"approve\" or \"reject\", got: ' + normalized.action);\n}\nif (!normalized.reference_id) {\n  throw new Error('Missing reference_id');\n}\n\nnormalized.timestamp = new Date().toISOString();\nnormalized.response_message = 'Approval received for ' + normalized.reference_id + ' (' + normalized.action + ')';\n\nreturn [{ json: normalized }];\n"
+        },
+        "id": "a49d8104-9b2f-4e67-bac1-f87c82f599f8",
+        "name": "Code - Normalize & Validate Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -720,
+          304
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ JSON.stringify({ success: true, type: $json.type, action: $json.action, reference_id: $json.reference_id, approved_by: $json.approved_by, timestamp: $json.timestamp, message: $json.response_message }) }}",
+          "options": {
+            "responseCode": 200,
+            "responseHeaders": {
+              "entries": [
+                {
+                  "name": "Access-Control-Allow-Origin",
+                  "value": "*"
+                },
+                {
+                  "name": "Content-Type",
+                  "value": "application/json"
+                }
+              ]
+            }
+          }
+        },
+        "id": "90227598-c2ab-4ebf-87a9-3ffd5901c38c",
+        "name": "Respond to Webhook",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          -496,
+          304
+        ]
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict"
+                  },
+                  "conditions": [
+                    {
+                      "id": "route-po-approve",
+                      "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.type }}",
+                      "rightValue": "po",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    },
+                    {
+                      "id": "route-approve",
+                      "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.action }}",
+                      "rightValue": "approve",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "po_approve"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict"
+                  },
+                  "conditions": [
+                    {
+                      "id": "route-po-reject",
+                      "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.type }}",
+                      "rightValue": "po",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    },
+                    {
+                      "id": "route-reject",
+                      "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.action }}",
+                      "rightValue": "reject",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "po_reject"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict"
+                  },
+                  "conditions": [
+                    {
+                      "id": "route-batch-approve",
+                      "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.type }}",
+                      "rightValue": "batch",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    },
+                    {
+                      "id": "route-approve-2",
+                      "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.action }}",
+                      "rightValue": "approve",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "batch_approve"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict"
+                  },
+                  "conditions": [
+                    {
+                      "id": "route-batch-reject",
+                      "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.type }}",
+                      "rightValue": "batch",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    },
+                    {
+                      "id": "route-reject-2",
+                      "leftValue": "={{ $('Code - Normalize & Validate Payload').first().json.action }}",
+                      "rightValue": "reject",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "batch_reject"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "fc3a4d9c-44ab-4842-b343-4d2d0054f5bb",
+        "name": "Switch - Route by type+action",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3,
+        "position": [
+          -288,
+          304
+        ]
+      },
+      {
+        "parameters": {
+          "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log?filterByFormula={{ encodeURIComponent(\"{po_number}='\" + $('Code - Normalize & Validate Payload').first().json.reference_id + \"'\") }}&maxRecords=1",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "options": {}
+        },
+        "id": "65f57088-68a6-44dd-9c5d-68223f6f450c",
+        "name": "PO/APPROVE — Lookup PO record",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          0,
+          0
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Extract PO details from lookup result\nconst resp = $input.first().json;\nconst records = resp.records || [];\n\nif (records.length === 0) {\n  const refId = $('Code - Normalize & Validate Payload').first().json.reference_id;\n  throw new Error('PO not found: ' + refId);\n}\n\nconst rec = records[0];\nconst f = rec.fields || {};\nconst ctx = $('Code - Normalize & Validate Payload').first().json;\n\nreturn [{\n  json: {\n    airtable_record_id: rec.id,\n    po_number: f.po_number,\n    vendor_name: f.vendor_name,\n    vendor_email: f.vendor_email || 'n1815764@gmail.com',\n    department: f.department,\n    total_amount: parseFloat(f.total_amount) || 0,\n    items_json: f.items_json || '[]',\n    gl_account: f.gl_account || '',\n    source: f.source || 'Manual',\n    requester: f.requester || 'System',\n    current_status: f.status,\n    approved_by: ctx.approved_by,\n    approval_source: ctx.source,\n    notes: ctx.notes,\n    approval_timestamp: ctx.timestamp,\n    update_body: JSON.stringify({ fields: { status: 'Approved', approved_by: ctx.approved_by, approved_date: new Date().toISOString().split('T')[0] } })\n  }\n}];"
+        },
+        "id": "5f685e33-bd1b-4a8a-be22-73d3427e88a5",
+        "name": "PO/APPROVE — Extract PO data",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          208,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "method": "PATCH",
+          "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log/{{ $json.airtable_record_id }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.update_body }}",
+          "options": {}
+        },
+        "id": "14ecb977-983a-470f-ada1-9d7f9a9ccb73",
+        "name": "PO/APPROVE — Update status → Approved",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          400,
+          0
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.moonshot.ai/v1/chat/completions",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 700, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are a hotel procurement AI at Heritage Grand Hotel Perast (Hotel Jadran). Generate a professional purchase order email in BCS (Bosnian/Croatian/Serbian) to send to the vendor. Include: PO number, hotel name, line items with quantities and unit prices, total in EUR formatted as European (€1.850,00), payment terms, delivery address. Sign as \"Služba nabavke, Hotel Jadran\". Respond ONLY in valid JSON: {\"subject\": \"...\", \"body\": \"...\"}. No markdown, no backticks. The body should be plain text, not HTML.' }, { role: 'user', content: 'Generate PO email:\\nPO: ' + $('PO/APPROVE — Extract PO data').first().json.po_number + '\\nVendor: ' + $('PO/APPROVE — Extract PO data').first().json.vendor_name + '\\nLine Items: ' + $('PO/APPROVE — Extract PO data').first().json.items_json + '\\nTotal: €' + $('PO/APPROVE — Extract PO data').first().json.total_amount + '\\nDepartment: ' + $('PO/APPROVE — Extract PO data').first().json.department + '\\nApproved by: ' + $('PO/APPROVE — Extract PO data').first().json.approved_by }] }) }}",
+          "options": {}
+        },
+        "id": "df5fab61-4203-41bf-b2af-81544561cb21",
+        "name": "PO/APPROVE — Kimi: Draft vendor email",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          608,
+          0
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "ircrqFbA5nzR0ppe",
+            "name": "Header Auth account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Parse Kimi's JSON response and build HTML email\nconst resp = $input.first().json;\nlet content = resp.choices?.[0]?.message?.content || '{}';\ncontent = content.replace(/```json|```/g, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(content);\n} catch (e) {\n  // Fallback if Kimi returns malformed JSON\n  const po = $('PO/APPROVE — Extract PO data').first().json;\n  parsed = {\n    subject: 'Nalog za nabavku — ' + po.po_number,\n    body: 'Poštovani,\\n\\nU prilogu Vam dostavljamo nalog za nabavku ' + po.po_number + ' u ukupnoj vrijednosti €' + po.total_amount.toFixed(2) + '.\\n\\nS poštovanjem,\\nSlužba nabavke, Hotel Jadran'\n  };\n}\n\nconst po = $('PO/APPROVE — Extract PO data').first().json;\nconst items = JSON.parse(po.items_json);\n\nconst fmtEur = (n) => '€' + parseFloat(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\n\n// Build polished HTML\nlet html = '<div style=\"font-family: Arial, sans-serif; max-width: 700px; color: #222;\">';\nhtml += '<div style=\"background: #1a1a2e; color: white; padding: 20px;\">';\nhtml += '<h2 style=\"margin:0;\">Hotel Jadran — Narudžbenica</h2>';\nhtml += '<p style=\"margin:5px 0 0;\">PO: ' + po.po_number + ' | Odobrio: ' + po.approved_by + ' | Datum: ' + new Date().toLocaleDateString('de-DE') + '</p>';\nhtml += '</div>';\nhtml += '<div style=\"padding: 20px; white-space: pre-wrap;\">' + (parsed.body || '').replace(/\\n/g, '<br>') + '</div>';\nhtml += '<table style=\"width:100%; border-collapse:collapse; margin-top:10px;\">';\nhtml += '<thead><tr style=\"background:#f0f0f0;\">';\nhtml += '<th style=\"padding:10px; text-align:left; border-bottom:2px solid #1a1a2e;\">Artikal</th>';\nhtml += '<th style=\"padding:10px; text-align:right; border-bottom:2px solid #1a1a2e;\">Količina</th>';\nhtml += '<th style=\"padding:10px; text-align:right; border-bottom:2px solid #1a1a2e;\">Jedinična cijena</th>';\nhtml += '<th style=\"padding:10px; text-align:right; border-bottom:2px solid #1a1a2e;\">Iznos</th>';\nhtml += '</tr></thead><tbody>';\nfor (const it of items) {\n  const qty = parseFloat(it.quantity) || 0;\n  const price = parseFloat(it.unit_price) || 0;\n  const sub = qty * price;\n  html += '<tr>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee;\">' + (it.item_name || '') + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee; text-align:right;\">' + qty + ' ' + (it.unit || '') + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee; text-align:right;\">' + fmtEur(price) + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee; text-align:right;\">' + fmtEur(sub) + '</td>';\n  html += '</tr>';\n}\nhtml += '</tbody><tfoot><tr style=\"background:#1a1a2e; color:white; font-weight:bold;\">';\nhtml += '<td colspan=\"3\" style=\"padding:10px;\">UKUPNO</td>';\nhtml += '<td style=\"padding:10px; text-align:right;\">' + fmtEur(po.total_amount) + '</td>';\nhtml += '</tr></tfoot></table>';\nhtml += '<p style=\"margin-top:20px; color:#666; font-size:11px;\">Ovaj nalog je automatski generisan i odobren od strane ' + po.approved_by + '. Referenca: ' + po.po_number + '</p>';\nhtml += '</div>';\n\nreturn [{\n  json: {\n    email_subject: parsed.subject || ('Narudžbenica ' + po.po_number + ' — Hotel Jadran'),\n    email_body_html: html,\n    email_body_text: parsed.body || '',\n    vendor_email: po.vendor_email,\n    po_number: po.po_number,\n    vendor_name: po.vendor_name,\n    total_amount: po.total_amount,\n    airtable_record_id: po.airtable_record_id,\n    approved_by: po.approved_by,\n    approval_source: po.approval_source\n  }\n}];"
+        },
+        "id": "9cdc8fc6-648a-4f70-8d0d-1b5d9c434fe0",
+        "name": "PO/APPROVE — Parse Kimi + Build HTML",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          800,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "n1815764@gmail.com",
+          "toEmail": "={{ $json.vendor_email }}",
+          "subject": "={{ $json.email_subject }}",
+          "html": "={{ $json.email_body_html }}",
+          "options": {
+            "appendAttribution": false,
+            "replyTo": "n1815764@gmail.com"
+          }
+        },
+        "id": "f03b397c-3afa-41f5-9ce9-d8885edd30b7",
+        "name": "PO/APPROVE — Send PO to vendor",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          1008,
+          0
+        ],
+        "webhookId": "79d33e96-9ff8-488d-9da7-0c9a79c7cddf",
+        "credentials": {
+          "smtp": {
+            "id": "gMeJAzEnruR2Zuau",
+            "name": "SMTP account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "PATCH",
+          "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log/{{ $('PO/APPROVE — Parse Kimi + Build HTML').first().json.airtable_record_id }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ fields: { status: 'Sent to Vendor' } }) }}",
+          "options": {}
+        },
+        "id": "f374155b-4968-4cca-a0d4-b2d95e37cb2e",
+        "name": "PO/APPROVE — Update status → Sent to Vendor",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1200,
+          0
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ records: [{ fields: { reference_id: $('PO/APPROVE — Parse Kimi + Build HTML').first().json.po_number, event_type: 'PO_APPROVED', actor: $('PO/APPROVE — Parse Kimi + Build HTML').first().json.approved_by, details: 'PO odobren iz ' + $('PO/APPROVE — Parse Kimi + Build HTML').first().json.approval_source + ' i poslan vendoru ' + $('PO/APPROVE — Parse Kimi + Build HTML').first().json.vendor_name, amount: $('PO/APPROVE — Parse Kimi + Build HTML').first().json.total_amount } }] }) }}",
+          "options": {}
+        },
+        "id": "34f9362c-3baa-4d2e-ba9e-36df305c927e",
+        "name": "PO/APPROVE — Audit Trail",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1408,
+          0
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log?filterByFormula={{ encodeURIComponent(\"{po_number}='\" + $('Code - Normalize & Validate Payload').first().json.reference_id + \"'\") }}&maxRecords=1",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "options": {}
+        },
+        "id": "80b73e8f-89ea-4e1b-8fbf-f090c639ab1a",
+        "name": "PO/REJECT — Lookup PO record",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          0,
+          208
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Extract PO details for rejection\nconst resp = $input.first().json;\nconst records = resp.records || [];\n\nif (records.length === 0) {\n  const refId = $('Code - Normalize & Validate Payload').first().json.reference_id;\n  throw new Error('PO not found: ' + refId);\n}\n\nconst rec = records[0];\nconst f = rec.fields || {};\nconst ctx = $('Code - Normalize & Validate Payload').first().json;\n\nreturn [{\n  json: {\n    airtable_record_id: rec.id,\n    po_number: f.po_number,\n    vendor_name: f.vendor_name,\n    total_amount: parseFloat(f.total_amount) || 0,\n    rejected_by: ctx.approved_by,\n    rejection_source: ctx.source,\n    rejection_reason: ctx.notes || 'Odbijeno bez komentara',\n    update_body: JSON.stringify({ fields: { status: 'Cancelled', approved_by: ctx.approved_by, approval_date: new Date().toISOString().split('T')[0] } })\n  }\n}];"
+        },
+        "id": "6000d0e4-e2b2-42c2-89a4-c5dff9dfd366",
+        "name": "PO/REJECT — Extract PO data",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          208,
+          208
+        ]
+      },
+      {
+        "parameters": {
+          "method": "PATCH",
+          "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log/{{ $json.airtable_record_id }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.update_body }}",
+          "options": {}
+        },
+        "id": "3e97aa06-0401-4f63-bc55-64e676965109",
+        "name": "PO/REJECT — Update status → Cancelled",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          400,
+          208
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ records: [{ fields: { reference_id: $('PO/REJECT — Extract PO data').first().json.po_number, event_type: 'PO_REJECTED', actor: $('PO/REJECT — Extract PO data').first().json.rejected_by, details: 'PO odbijen iz ' + $('PO/REJECT — Extract PO data').first().json.rejection_source + '. Razlog: ' + $('PO/REJECT — Extract PO data').first().json.rejection_reason, amount: $('PO/REJECT — Extract PO data').first().json.total_amount } }] }) }}",
+          "options": {}
+        },
+        "id": "1e492a95-0ee6-4b55-b01c-7ea11cbad115",
+        "name": "PO/REJECT — Audit Trail",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          608,
+          208
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "search",
+          "base": {
+            "__rl": true,
+            "value": "appjHlTQID87ODAJL",
+            "mode": "id"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblKFEvMbOobm9Y9X",
+            "mode": "id"
+          },
+          "filterByFormula": "={batch_id} = '{{ $('Code - Normalize & Validate Payload').first().json.reference_id }}'",
+          "options": {}
+        },
+        "id": "88434b68-a75d-4000-94b1-e4ea57ef3213",
+        "name": "BATCH/APPROVE — Lookup batch record",
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          400
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Extract batch details for approval\nconst batchRecord = $input.first().json;\nconst f = batchRecord.fields || batchRecord;\nconst ctx = $('Code - Normalize & Validate Payload').first().json;\n\nif (!f.batch_id) {\n  throw new Error('Batch not found: ' + ctx.reference_id);\n}\n\nconst invoicesJson = JSON.parse(f.invoices_json || '[]');\n\nreturn [{\n  json: {\n    airtable_record_id: batchRecord.id,\n    batch_id: f.batch_id,\n    total_amount: parseFloat(f.total_amount) || 0,\n    invoices: invoicesJson,\n    invoice_count: invoicesJson.length,\n    approved_by: ctx.approved_by,\n    approval_source: ctx.source\n  }\n}];"
+        },
+        "id": "4e1cae9e-7ad0-44f9-9575-490af374093f",
+        "name": "BATCH/APPROVE — Extract batch data",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          208,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "base": {
+            "__rl": true,
+            "value": "appjHlTQID87ODAJL",
+            "mode": "id"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblKFEvMbOobm9Y9X",
+            "mode": "id"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "id": "={{ $json.airtable_record_id }}",
+              "status": "Approved",
+              "approved_by": "={{ $json.approved_by }}",
+              "approved_date": "={{ new Date().toISOString().split('T')[0] }}"
+            },
+            "matchingColumns": [
+              "id"
+            ]
+          },
+          "options": {}
+        },
+        "id": "60a3de65-9bb7-43a4-892d-61ecbb471286",
+        "name": "BATCH/APPROVE — Update status → Approved",
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.1,
+        "position": [
+          400,
+          400
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Build payment instruction email HTML\nconst data = $('BATCH/APPROVE — Extract batch data').first().json;\nconst fmtEur = (n) => '€' + parseFloat(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\n\nlet html = '<div style=\"font-family: Arial, sans-serif; max-width: 700px; color: #222;\">';\nhtml += '<div style=\"background: #1a1a2e; color: white; padding: 20px;\">';\nhtml += '<h2 style=\"margin:0;\">Hotel Jadran — Nalog za plaćanje</h2>';\nhtml += '<p style=\"margin:5px 0 0;\">Batch: ' + data.batch_id + ' | Odobrio: ' + data.approved_by + ' | Izvor: ' + (data.approval_source === 'command_center' ? 'Command Center' : 'Slack') + ' | Datum: ' + new Date().toLocaleDateString('de-DE') + '</p>';\nhtml += '</div>';\nhtml += '<table style=\"width:100%; border-collapse:collapse; margin-top:20px;\"><thead><tr style=\"background:#f0f0f0;\">';\nhtml += '<th style=\"padding:10px; text-align:left;\">Dobavljač</th>';\nhtml += '<th style=\"padding:10px; text-align:left;\">Br. fakture</th>';\nhtml += '<th style=\"padding:10px; text-align:left;\">PO</th>';\nhtml += '<th style=\"padding:10px; text-align:right;\">Iznos (EUR)</th>';\nhtml += '</tr></thead><tbody>';\nfor (const inv of data.invoices) {\n  html += '<tr>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee;\">' + (inv.vendor_name || '-') + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee;\">' + (inv.vendor_invoice_number || '-') + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee;\">' + (inv.po_number || '-') + '</td>';\n  html += '<td style=\"padding:8px; border-bottom:1px solid #eee; text-align:right;\">' + fmtEur(inv.amount || 0) + '</td>';\n  html += '</tr>';\n}\nhtml += '</tbody><tfoot><tr style=\"background:#1a1a2e; color:white; font-weight:bold;\">';\nhtml += '<td colspan=\"3\" style=\"padding:10px;\">UKUPNO ZA PLAĆANJE</td>';\nhtml += '<td style=\"padding:10px; text-align:right;\">' + fmtEur(data.total_amount) + '</td>';\nhtml += '</tr></tfoot></table>';\nhtml += '<p style=\"margin-top:20px; color:#666; font-size:12px;\">Ovaj nalog je automatski generisan. Batch ID: ' + data.batch_id + '</p>';\nhtml += '</div>';\n\nreturn [{\n  json: {\n    batch_id: data.batch_id,\n    total_amount: data.total_amount,\n    invoice_count: data.invoice_count,\n    approved_by: data.approved_by,\n    approval_source: data.approval_source,\n    email_subject: 'Nalog za plaćanje — Batch ' + data.batch_id + ' — ' + fmtEur(data.total_amount),\n    email_html: html\n  }\n}];"
+        },
+        "id": "acc99e20-5d2b-4a2b-a117-a0b6b9eb452c",
+        "name": "BATCH/APPROVE — Build payment email",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          608,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "n1815764@gmail.com",
+          "toEmail": "n1815764@gmail.com",
+          "subject": "={{ $json.email_subject }}",
+          "html": "={{ $json.email_html }}",
+          "options": {
+            "appendAttribution": false,
+            "replyTo": "n1815764@gmail.com"
+          }
+        },
+        "id": "d112f746-3c6d-4883-9441-8ac193aeedb1",
+        "name": "BATCH/APPROVE — Send payment instruction",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          800,
+          400
+        ],
+        "webhookId": "abc8b134-ce21-4d6e-88e1-7f37ba19aea2",
+        "credentials": {
+          "smtp": {
+            "id": "gMeJAzEnruR2Zuau",
+            "name": "SMTP account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ records: [{ fields: { reference_id: $('BATCH/APPROVE — Build payment email').first().json.batch_id, event_type: 'PAYMENT_BATCH_APPROVED', actor: $('BATCH/APPROVE — Build payment email').first().json.approved_by, details: 'Batch odobren iz ' + $('BATCH/APPROVE — Build payment email').first().json.approval_source + '. Nalog za plaćanje poslan. ' + $('BATCH/APPROVE — Build payment email').first().json.invoice_count + ' faktura.', amount: $('BATCH/APPROVE — Build payment email').first().json.total_amount } }] }) }}",
+          "options": {}
+        },
+        "id": "26e3ac3b-b38a-489a-98dd-f1999a65384e",
+        "name": "BATCH/APPROVE — Audit Trail",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1008,
+          400
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "search",
+          "base": {
+            "__rl": true,
+            "value": "appjHlTQID87ODAJL",
+            "mode": "id"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblKFEvMbOobm9Y9X",
+            "mode": "id"
+          },
+          "filterByFormula": "={batch_id} = '{{ $('Code - Normalize & Validate Payload').first().json.reference_id }}'",
+          "options": {}
+        },
+        "id": "c08f82c8-8828-4ff8-b3b2-87f7a7c2dac4",
+        "name": "BATCH/REJECT — Lookup batch record",
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          608
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Extract rejected batch details\nconst batchRecord = $input.first().json;\nconst f = batchRecord.fields || batchRecord;\nconst ctx = $('Code - Normalize & Validate Payload').first().json;\n\nif (!f.batch_id) {\n  throw new Error('Batch not found: ' + ctx.reference_id);\n}\n\nconst invoicesJson = JSON.parse(f.invoices_json || '[]');\n\nreturn [{\n  json: {\n    airtable_record_id: batchRecord.id,\n    batch_id: f.batch_id,\n    total_amount: parseFloat(f.total_amount) || 0,\n    invoices: invoicesJson,\n    invoice_count: invoicesJson.length,\n    rejected_by: ctx.approved_by,\n    rejection_source: ctx.source,\n    rejection_reason: ctx.notes || 'Odbijeno bez komentara'\n  }\n}];"
+        },
+        "id": "f3d12ed6-1b62-4e21-bcae-1266cad774d3",
+        "name": "BATCH/REJECT — Extract batch data",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          208,
+          608
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "base": {
+            "__rl": true,
+            "value": "appjHlTQID87ODAJL",
+            "mode": "id"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tblKFEvMbOobm9Y9X",
+            "mode": "id"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "id": "={{ $json.airtable_record_id }}",
+              "status": "Rejected",
+              "approved_by": "={{ $json.rejected_by }}",
+              "approved_date": "={{ new Date().toISOString().split('T')[0] }}"
+            },
+            "matchingColumns": [
+              "id"
+            ]
+          },
+          "options": {}
+        },
+        "id": "6a238fb3-3762-49ba-bed4-8804970b93d8",
+        "name": "BATCH/REJECT — Update status → Rejected",
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.1,
+        "position": [
+          400,
+          608
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ records: [{ fields: { reference_id: $('BATCH/REJECT — Extract batch data').first().json.batch_id, event_type: 'PAYMENT_BATCH_REJECTED', actor: $('BATCH/REJECT — Extract batch data').first().json.rejected_by, details: 'Batch odbijen iz ' + $('BATCH/REJECT — Extract batch data').first().json.rejection_source + '. Razlog: ' + $('BATCH/REJECT — Extract batch data').first().json.rejection_reason + '. ' + $('BATCH/REJECT — Extract batch data').first().json.invoice_count + ' faktura vraćeno u status Unbatched.', amount: $('BATCH/REJECT — Extract batch data').first().json.total_amount } }] }) }}",
+          "options": {}
+        },
+        "id": "c35a7d03-eda1-4787-95f0-cffac36efccf",
+        "name": "BATCH/REJECT — Audit Trail",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          608,
+          608
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Webhook - Command Center Approval": {
+        "main": [
+          [
+            {
+              "node": "Code - Normalize & Validate Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Normalize & Validate Payload": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Respond to Webhook": {
+        "main": [
+          [
+            {
+              "node": "Switch - Route by type+action",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Switch - Route by type+action": {
+        "main": [
+          [
+            {
+              "node": "PO/APPROVE — Lookup PO record",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "PO/REJECT — Lookup PO record",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "BATCH/APPROVE — Lookup batch record",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "BATCH/REJECT — Lookup batch record",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PO/APPROVE — Lookup PO record": {
+        "main": [
+          [
+            {
+              "node": "PO/APPROVE — Extract PO data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PO/APPROVE — Extract PO data": {
+        "main": [
+          [
+            {
+              "node": "PO/APPROVE — Update status → Approved",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PO/APPROVE — Update status → Approved": {
+        "main": [
+          [
+            {
+              "node": "PO/APPROVE — Kimi: Draft vendor email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PO/APPROVE — Kimi: Draft vendor email": {
+        "main": [
+          [
+            {
+              "node": "PO/APPROVE — Parse Kimi + Build HTML",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PO/APPROVE — Parse Kimi + Build HTML": {
+        "main": [
+          [
+            {
+              "node": "PO/APPROVE — Send PO to vendor",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PO/APPROVE — Send PO to vendor": {
+        "main": [
+          [
+            {
+              "node": "PO/APPROVE — Update status → Sent to Vendor",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PO/APPROVE — Update status → Sent to Vendor": {
+        "main": [
+          [
+            {
+              "node": "PO/APPROVE — Audit Trail",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PO/REJECT — Lookup PO record": {
+        "main": [
+          [
+            {
+              "node": "PO/REJECT — Extract PO data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PO/REJECT — Extract PO data": {
+        "main": [
+          [
+            {
+              "node": "PO/REJECT — Update status → Cancelled",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PO/REJECT — Update status → Cancelled": {
+        "main": [
+          [
+            {
+              "node": "PO/REJECT — Audit Trail",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BATCH/APPROVE — Lookup batch record": {
+        "main": [
+          [
+            {
+              "node": "BATCH/APPROVE — Extract batch data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BATCH/APPROVE — Extract batch data": {
+        "main": [
+          [
+            {
+              "node": "BATCH/APPROVE — Update status → Approved",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BATCH/APPROVE — Update status → Approved": {
+        "main": [
+          [
+            {
+              "node": "BATCH/APPROVE — Build payment email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BATCH/APPROVE — Build payment email": {
+        "main": [
+          [
+            {
+              "node": "BATCH/APPROVE — Send payment instruction",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BATCH/APPROVE — Send payment instruction": {
+        "main": [
+          [
+            {
+              "node": "BATCH/APPROVE — Audit Trail",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BATCH/REJECT — Lookup batch record": {
+        "main": [
+          [
+            {
+              "node": "BATCH/REJECT — Extract batch data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BATCH/REJECT — Extract batch data": {
+        "main": [
+          [
+            {
+              "node": "BATCH/REJECT — Update status → Rejected",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BATCH/REJECT — Update status → Rejected": {
+        "main": [
+          [
+            {
+              "node": "BATCH/REJECT — Audit Trail",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Martin Cupic",
+    "name": "Version 0e7b0fe4",
+    "description": "",
+    "autosaved": true,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-19T02:15:11.991Z",
+        "id": 14,
+        "workflowId": "RIiDJwBfD4XfVlaj",
+        "versionId": "0e7b0fe4-7e7d-4b4a-a85b-ad035902e4c9",
+        "event": "activated",
+        "userId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    ]
+  }
+}

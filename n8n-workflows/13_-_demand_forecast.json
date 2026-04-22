@@ -1,0 +1,409 @@
+{
+  "updatedAt": "2026-04-12T01:38:01.446Z",
+  "createdAt": "2026-04-10T19:25:45.693Z",
+  "id": "s21AG2UWCWSdQ6wl",
+  "name": "13 - Demand Forecast",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "e85e8149-bb08-449b-99da-9a21cbdff1c0",
+      "name": "Cron - Sunday 6PM Forecast",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        192
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b270112d-bed5-497a-950a-fe14747b62cb",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Occupancy%20Data",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "ce7e3545-9962-4cc1-b145-981afcd922d4",
+      "name": "Airtable - Occupancy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        80
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Inventory%20with%20Par%20Levels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "fb35af85-d5a8-480e-be72-f256c3322798",
+      "name": "Airtable - Inventory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        224
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "8cf73efb-58e7-4c3f-bea1-ba44793a9fb7",
+      "name": "Airtable - PO History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        368
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const occ = $('Airtable - Occupancy').first().json.records || [];\nconst inv = $('Airtable - Inventory').first().json.records || [];\nconst history = $('Airtable - PO History').first().json.records || [];\n\nconst occFormatted = occ.map(r => {\n  const date = r.fields.Date || r.fields.Name || 'Unknown';\n  const pct = r.fields['Occupancy %'] ? Math.round(r.fields['Occupancy %'] * 100) : 'N/A';\n  const events = r.fields.Events || 'no events';\n  return date + ': ' + pct + '% (' + events + ')';\n}).join('\\n') || 'No forecast data';\n\nconst avgOcc = occ.length > 0 ? Math.round(occ.reduce((s,r) => s + ((r.fields['Occupancy %'] || 0.75) * 100), 0) / occ.length) : 75;\n\nconst invFormatted = inv.map(r => r.fields.Name + ': current=' + (r.fields['Current Stock'] || 0) + ' ' + (r.fields.Unit || '') + ', par=' + (r.fields['Par Level'] || 0)).join('\\n') || 'No inventory data';\n\nconst events = occ.filter(r => r.fields.Events && r.fields.Events.trim()).map(r => (r.fields.Date || r.fields.Name) + ': ' + r.fields.Events).join('\\n') || 'No special events';\n\nconst historyTotal = history.reduce((s,r) => s + (r.fields.total_amount || 0), 0);\nconst weeksOfData = Math.max(1, Math.ceil(history.length / 7));\n\nconst today = new Date();\nconst nextMon = new Date(today); nextMon.setDate(today.getDate() + (1 + 7 - today.getDay()) % 7);\nconst nextSun = new Date(nextMon); nextSun.setDate(nextMon.getDate() + 6);\n\nreturn [{ json: {\n  property_name: 'Hotel Jadran', total_rooms: 200,\n  week_start: nextMon.toISOString().split('T')[0],\n  week_end: nextSun.toISOString().split('T')[0],\n  daily_occupancy_formatted: occFormatted,\n  avg_occupancy: avgOcc,\n  events_formatted: events,\n  historical_sales_formatted: 'Avg weekly PO value: €' + Math.round(historyTotal / weeksOfData),\n  current_inventory_formatted: invFormatted\n} }];"
+      },
+      "id": "d836eceb-13bc-4c48-8c62-be0845806217",
+      "name": "Code - Merge Forecast Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOONSHOT_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 2000, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are a hotel procurement AI forecasting demand for the coming week. Combine occupancy forecasts with inventory levels and events to predict ordering needs. Flag items needing IMMEDIATE ordering vs THIS_WEEK vs MONITOR. Include 10-15% safety buffer. Respond ONLY in valid JSON. No markdown, no backticks. Keep response concise.' }, { role: 'user', content: 'Forecast for ' + $json.week_start + ' to ' + $json.week_end + ':\\n\\nProperty: ' + $json.property_name + ' (' + $json.total_rooms + ' rooms)\\n\\nOCCUPANCY:\\n' + $json.daily_occupancy_formatted + '\\nAvg: ' + $json.avg_occupancy + '%\\n\\nEVENTS:\\n' + $json.events_formatted + '\\n\\nHISTORICAL:\\n' + $json.historical_sales_formatted + '\\n\\nCURRENT INVENTORY:\\n' + $json.current_inventory_formatted + '\\n\\nRespond: {\"forecast_period\": \"...\", \"occupancy_summary\": \"...\", \"demand_adjustments\": [{\"item\": \"...\", \"current_stock\": N, \"projected_usage\": N, \"order_needed\": N, \"urgency\": \"IMMEDIATE|THIS_WEEK|MONITOR\", \"reason\": \"...\"}], \"summary\": \"...\", \"total_estimated_spend\": N}' }] }) }}",
+        "options": {}
+      },
+      "id": "099cfc41-aa8c-4cf0-b55b-abca07beeff9",
+      "name": "AI - Demand Forecast",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        736,
+        224
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nlet content = r.choices[0].message.content;\n\n// Clean markdown fences if present\ncontent = content.replace(/```json|```/g, '').trim();\n\n// If response was truncated (finish_reason=length), try to repair the JSON\nconst finishReason = r.choices[0].finish_reason;\nif (finishReason === 'length') {\n  // Try to close any open strings/objects/arrays\n  let depth = 0;\n  let inString = false;\n  let escape = false;\n  for (let i = 0; i < content.length; i++) {\n    const c = content[i];\n    if (escape) { escape = false; continue; }\n    if (c === '\\\\') { escape = true; continue; }\n    if (c === '\"') { inString = !inString; continue; }\n    if (!inString) {\n      if (c === '{' || c === '[') depth++;\n      if (c === '}' || c === ']') depth--;\n    }\n  }\n  if (inString) content += '\"';\n  // Close arrays then objects\n  while (depth > 0) {\n    content += content.lastIndexOf('[') > content.lastIndexOf('{') ? ']' : '}';\n    depth--;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = JSON.parse(content);\n} catch(e) {\n  // Fallback: generate a basic report from raw text\n  parsed = {\n    forecast_period: 'Current Week',\n    occupancy_summary: 'Forecast generated (partial data)',\n    demand_adjustments: [],\n    summary: content.substring(0, 500),\n    total_estimated_spend: 'N/A'\n  };\n}\n\nlet report = '\\u{1f4ca} *WEEKLY DEMAND FORECAST* \\u2014 ' + (parsed.forecast_period || 'Current Week') + '\\n\\n';\nreport += (parsed.occupancy_summary || '') + '\\n\\n';\n\nconst immediate = (parsed.demand_adjustments || []).filter(d => d.urgency === 'IMMEDIATE');\nconst thisWeek = (parsed.demand_adjustments || []).filter(d => d.urgency === 'THIS_WEEK');\n\nif (immediate.length > 0) {\n  report += '*\\u{1f534} ORDER IMMEDIATELY:*\\n';\n  immediate.forEach(d => { report += '  ' + d.item + ': order ' + d.order_needed + ' (' + d.reason + ')\\n'; });\n  report += '\\n';\n}\nif (thisWeek.length > 0) {\n  report += '*\\u{1f7e1} ORDER THIS WEEK:*\\n';\n  thisWeek.forEach(d => { report += '  ' + d.item + ': order ' + d.order_needed + ' (' + d.reason + ')\\n'; });\n  report += '\\n';\n}\n\nreport += '\\u{1f4b0} Est. spend: \\u20ac' + (parsed.total_estimated_spend || 'N/A') + '\\n\\n' + (parsed.summary || '') + '\\n@controller';\n\nconst auditBody = JSON.stringify({ records: [{ fields: { reference_id: 'FORECAST-' + (parsed.forecast_period || 'unknown'), event_type: 'Approved', actor: 'System', details: 'Weekly demand forecast generated. Est. spend: \\u20ac' + (parsed.total_estimated_spend || 0) } }] });\n\nreturn [{ json: { report_text: report, audit_body: auditBody } }];"
+      },
+      "id": "27fa1ebf-161f-46bb-8674-86f6c38b9bb3",
+      "name": "Code - Format Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "={{ $json.report_text }}",
+        "otherOptions": {}
+      },
+      "id": "65f34499-5242-4fd3-b497-4d2bb540d7bd",
+      "name": "Slack - Post Forecast",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1184,
+        224
+      ],
+      "webhookId": "c1e9dc22-90ac-40aa-b3da-ce4079420294",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { audit_body: $('Code - Format Report').first().json.audit_body } }];"
+      },
+      "id": "12532817-cbeb-47ec-9612-bdf3fd9dfb84",
+      "name": "Code - Prep Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.audit_body }}",
+        "options": {}
+      },
+      "id": "be5ad8fc-1fdc-4670-b8c4-63cb1e2fcd7a",
+      "name": "Airtable - Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1632,
+        224
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron - Sunday 6PM Forecast": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Occupancy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Occupancy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Merge Forecast Data": {
+      "main": [
+        [
+          {
+            "node": "AI - Demand Forecast",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Demand Forecast": {
+      "main": [
+        [
+          {
+            "node": "Code - Format Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Format Report": {
+      "main": [
+        [
+          {
+            "node": "Slack - Post Forecast",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Post Forecast": {
+      "main": [
+        [
+          {
+            "node": "Code - Prep Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prep Audit": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Occupancy": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Inventory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Inventory": {
+      "main": [
+        [
+          {
+            "node": "Airtable - PO History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - PO History": {
+      "main": [
+        [
+          {
+            "node": "Code - Merge Forecast Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "12ed2920-d21d-4a4d-81d4-eefeb06c1a06",
+  "activeVersionId": null,
+  "versionCounter": 6,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:23:58.013Z",
+      "createdAt": "2026-04-12T00:23:58.013Z",
+      "role": "workflow:editor",
+      "workflowId": "s21AG2UWCWSdQ6wl",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:25:45.697Z",
+      "createdAt": "2026-04-10T19:25:45.697Z",
+      "role": "workflow:owner",
+      "workflowId": "s21AG2UWCWSdQ6wl",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": null
+}

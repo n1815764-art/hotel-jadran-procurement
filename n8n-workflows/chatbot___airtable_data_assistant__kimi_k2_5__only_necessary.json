@@ -1,0 +1,661 @@
+{
+  "updatedAt": "2026-04-17T23:31:47.225Z",
+  "createdAt": "2026-04-15T21:15:32.583Z",
+  "id": "S0HSmZ27KMgboTAj",
+  "name": "Chatbot — Airtable Data Assistant (Kimi K2.5) ONLY NECESSARY IF NEEDED ACROSS PLATFORMS",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "public": true,
+        "options": {
+          "allowedOrigins": "*",
+          "subtitle": "Pitajte me o PO-ovima, fakturama, zalihama, dobavljačima ili ugovorima. Ask in English or BCS.",
+          "title": "Hotel Procurement Assistant"
+        }
+      },
+      "id": "b61f0ba8-fd0e-4457-a4c7-a945b9009787",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "position": [
+        -80,
+        464
+      ],
+      "webhookId": "hotel-procurement-chat",
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a data assistant for Hotel Heritage Grand Perast's procurement automation system (operated by Jadran DOO Kotor). You help the team query the Airtable database to answer operational questions about purchase orders, invoices, inventory, vendors, audit trail, contracts, requisitions, receiving, occupancy, payments, and AR.\n\nYou are READ-ONLY. You query data — you never create, update, or delete records.\n\n# LANGUAGE\n- Respond in whatever language the user writes to you (English or BCS/Montenegrin).\n- BCS data fields (vendor names, item names, event descriptions, ai_note, match_details) are in Bosnian/Croatian/Serbian — preserve them verbatim.\n- When the user writes in BCS, respond in BCS. When the user writes in English, respond in English.\n\n# AVAILABLE TOOLS (12 read tools on Airtable base appjHlTQID87ODAJL)\n\n| Tool | Table | Key fields |\n|---|---|---|\n| query_po_log | PO_Log | po_number, date_created, vendor_name, department, total_amount, status, approved_by, gl_account, source, requester, vendor_email |\n| query_invoices | Invoice Log | invoice_id, vendor_invoice_number, vendor_name, po_number, invoice_date, total_amount, match_status, gl_account, duplicate_flag |\n| query_inventory | Non-F&B Inventory | item_id, item_name, category, department, warehouse, par_level, reorder_point, current_stock, preferred_vendor_name, unit_cost, ai_flag, negative_stock, ghost_surplus |\n| query_vendors | Vendor Master | vendor_id, vendor_name, contact_name, contact_email, category, payment_terms, approved_status, performance_score |\n| query_contracts | Vendor_Contracts | contract_id, vendor, start_date, end_date, auto_renew, total_value, status, alert_90_sent, alert_60_sent, alert_30_sent |\n| query_audit_trail | Audit Trail | event_id, timestamp, event_type, actor, reference_id, details, amount |\n| query_requisitions | Requisition_Log | (schema varies — query broadly first if unsure) |\n| query_receiving | Receiving Log | receiving_id, po_number, vendor, date_received, received_by, discrepancy, discrepancy_notes |\n| query_occupancy | Occupancy Forecast | date, occupancy_pct, rooms_sold, arrivals, departures, events |\n| query_payment_batch | Payment_Batch | AP batch staging |\n| query_ar_ledger | AR_Ledger | AR aging |\n| query_revenue_recon | Revenue_Reconciliation | nightly revenue reconciliation |\n\n# STATUS ENUMS\n\n**PO status:** Pending Approval | Approved | Sent to Vendor | Open | Partially Received | Fully Received | Closed | Cancelled\n**PO source:** Auto-Reorder | Manual | Emergency\n**Invoice match_status:** Perfect Match | Minor | Major | Disputed | Pending Review\n**Vendor approved_status:** Active | Probation | Suspended | Inactive\n**Contract status:** Active | Expiring | Expired | Renewed\n\n# APPROVAL TIERS\n- < €500 → Auto-approved\n- €500–€2,000 → Department Head\n- €2,000–€5,000 → Zoran Radonjić (Finance Controller)\n- > €5,000 → Zoran + GM (sequential)\n\n# AIRTABLE filterByFormula SYNTAX\n\nEach tool accepts one argument: `filter_formula` (string).\n\n- Field references: `{vendor_name}`, `{total_amount}` — always curly braces\n- Strings: single quotes — `{status} = 'Pending Approval'`\n- Numbers: `{total_amount} > 2000`\n- AND: `AND({status} = 'Approved', {total_amount} > 500)`\n- OR: `OR({match_status} = 'Disputed', {match_status} = 'Major')`\n- NOT: `NOT({duplicate_flag})` or `{duplicate_flag} = FALSE()`\n- Booleans: `{negative_stock} = TRUE()`\n- Dates: `IS_AFTER({date_created}, '2026-04-01')`, `IS_BEFORE({end_date}, DATEADD(TODAY(), 30, 'days'))`, `DATETIME_DIFF({end_date}, TODAY(), 'days')`\n- Text search (case-insensitive substring): `FIND(LOWER('voli'), LOWER({vendor_name})) > 0`\n- Empty check: `{approved_by} = BLANK()`, `NOT({discrepancy_notes} = BLANK())`\n- Return all records: pass empty string `\"\"` (use sparingly)\n\n# QUERY STRATEGY\n\n1. **Be specific.** Tightest filter that answers the question.\n2. **Chain when needed.** Joining across tables? Query the first table, extract the ID, then use it in the next query.\n3. **Handle empty results.** 0 records → say so. Don't guess.\n4. **If a formula fails,** diagnose the error (field name? syntax?) and retry.\n5. **Respect the 50-record limit.** Narrow further if needed.\n\n# PRESENTATION\n\n- **Currency:** `€1.850,00` (European format — dot thousands, comma decimals). Never `$`.\n- **Dates:** ISO `2026-04-15` in English; `15. april 2026.` in BCS.\n- **Lists:** markdown tables for 3+ records with multiple fields. Bullets or prose for fewer.\n- **Always cite:** \"From PO_Log...\" / \"Prema PO_Log tabeli...\"\n- **Summarize numerically:** include count and total where meaningful. E.g., \"7 POs čekaju odobrenje, ukupna vrijednost €14.320,00\".\n- **Surface outliers:** negative_stock, ghost_surplus, duplicate_flag, Disputed — always call them out.\n\n# KNOWN DATA-INTEGRITY ISSUES\n\n- **Piletina (PROT-001) / Orada na žaru:** POS2 recipe misconfiguration — \"Orada na žaru\" depletes chicken (piletina) instead of fish. Piletina current_stock goes negative; orada shows ghost surplus. If the user asks about either item, acknowledge the recipe error and point to the fix (POS2 Admin → Recipes → Orada na žaru).\n\n# BEHAVIOR\n\n- **No fabrication.** Only report what the tool returned.\n- **No writes.** If asked to create/update/delete, explain you're read-only and point to the relevant workflow (WF03 requisitions, WF06 PO creation, WF14 payments).\n- **Flag anomalies** in any result set.\n- **Be concise.** Martin and Zoran are operating a hotel — they want answers, not essays.\n\n# EXAMPLES\n\n**User:** \"Koji POs čekaju odobrenje iznad 2000€?\"\n**Tool:** query_po_log  `filter_formula = AND({status} = 'Pending Approval', {total_amount} > 2000)`\n**Response (BCS):** Table of PO#, vendor, dept, amount + count and total.\n\n**User:** \"Show me disputed invoices from March\"\n**Tool:** query_invoices  `filter_formula = AND({match_status} = 'Disputed', IS_AFTER({invoice_date}, '2026-03-01'), IS_BEFORE({invoice_date}, '2026-04-01'))`\n\n**User:** \"Which contracts expire in the next 30 days?\"\n**Tool:** query_contracts  `filter_formula = AND(IS_AFTER({end_date}, TODAY()), IS_BEFORE({end_date}, DATEADD(TODAY(), 30, 'days')))`\n\n**User:** \"Prikaži sve artikle sa negativnim stanjem\"\n**Tool:** query_inventory  `filter_formula = {negative_stock} = TRUE()`\n**Response (BCS):** List items + flag the Piletina/Orada recipe error.\n\n**User:** \"What did the system do last night?\"\n**Tool:** query_audit_trail  `filter_formula = IS_AFTER({timestamp}, DATEADD(TODAY(), -1, 'days'))`\n\n---\n\nWhen in doubt: query narrowly first, expand if needed. Never guess. Never write."
+        }
+      },
+      "id": "b8d86a6e-5bbd-447e-b5b9-fd0e15fcc6e5",
+      "name": "Data Assistant Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        224,
+        464
+      ],
+      "typeVersion": 1.8
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "kimi-k2.5",
+          "cachedResultName": "kimi-k2.5"
+        },
+        "options": {
+          "maxTokens": 4096,
+          "temperature": 0.2
+        }
+      },
+      "id": "1ac6d481-4889-48d2-8690-4d314fcf13a7",
+      "name": "Kimi K2.5 (Moonshot)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "position": [
+        64,
+        688
+      ],
+      "typeVersion": 1.2,
+      "credentials": {
+        "openAiApi": {
+          "id": "0NEzPG9trZ5SlruJ",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "contextWindowLength": 10
+      },
+      "id": "04c49132-c430-4b01-820b-e00e290587b7",
+      "name": "Chat Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "position": [
+        224,
+        688
+      ],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "PO_Log",
+          "mode": "list",
+          "cachedResultName": "PO_Log"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all records (use sparingly). See tool description for fields and syntax.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "a9bddcbe-6ea1-465a-af56-78573112b2d0",
+      "name": "query_po_log",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        384,
+        944
+      ],
+      "typeVersion": 2.1,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Invoice Log",
+          "mode": "list",
+          "cachedResultName": "Invoice Log"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description for fields.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "6f00c0ac-c019-4df4-8f36-649960d4196a",
+      "name": "query_invoices",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        592,
+        944
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Non-F&B Inventory",
+          "mode": "list",
+          "cachedResultName": "Non-F&B Inventory"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description for fields.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "1eee9fed-8a10-4c53-bfa9-0aed0be5ad9b",
+      "name": "query_inventory",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        784,
+        944
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Vendor Master",
+          "mode": "list",
+          "cachedResultName": "Vendor Master"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description for fields.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "126fe745-2a6f-40d6-9d89-ba42468cfc85",
+      "name": "query_vendors",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        992,
+        944
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblPtftB8Llv44OQW",
+          "mode": "id",
+          "cachedResultName": "Vendor_Contracts"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description for fields.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "9a87c932-96fa-46be-9bea-acf682e4c3c5",
+      "name": "query_contracts",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        384,
+        1136
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Audit Trail",
+          "mode": "list",
+          "cachedResultName": "Audit Trail"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description for fields.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "682b41db-121a-48fe-a3b4-c30d14894a2b",
+      "name": "query_audit_trail",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        592,
+        1136
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblrA8QZAGpoA2CqY",
+          "mode": "id",
+          "cachedResultName": "Requisition_Log"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "756bfa64-6161-4638-a547-6209baeaa247",
+      "name": "query_requisitions",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        784,
+        1136
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Receiving Log",
+          "mode": "list",
+          "cachedResultName": "Receiving Log"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "b8bf40fc-9da1-4bc0-a6cb-22632364a27f",
+      "name": "query_receiving",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        992,
+        1136
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Occupancy Forecast",
+          "mode": "list",
+          "cachedResultName": "Occupancy Forecast"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "cdb37200-b489-4887-82f9-13c369fc1564",
+      "name": "query_occupancy",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        384,
+        1312
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblKFEvMbOobm9Y9X",
+          "mode": "id",
+          "cachedResultName": "Payment_Batch"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "94e9d7a5-b036-4216-b367-d89653e47327",
+      "name": "query_payment_batch",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        592,
+        1312
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblWg64KRT2VKycZt",
+          "mode": "id",
+          "cachedResultName": "AR_Ledger"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "37106531-09ac-4923-b429-530f9bd8d345",
+      "name": "query_ar_ledger",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        784,
+        1312
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl1cJRSh0w7N0BBx",
+          "mode": "id",
+          "cachedResultName": "Revenue_Reconciliation"
+        },
+        "filterByFormula": "={{ $fromAI('filter_formula', 'Airtable filterByFormula expression. Empty string returns all. See tool description.', 'string') }}",
+        "returnAll": false,
+        "limit": 50,
+        "options": {}
+      },
+      "id": "3abd6a1c-90fa-4a26-bdd8-80f25ba69ff3",
+      "name": "query_revenue_recon",
+      "type": "n8n-nodes-base.airtableTool",
+      "position": [
+        992,
+        1312
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "content": "## Hotel Procurement Chatbot\n**12 Airtable tools + Kimi K2.5**\n\nAsk in English or BCS. The agent picks the right tool, writes a filterByFormula, summarizes results.\n\n### Quick test\nClick **Chat** (bottom of canvas) and try:\n- _Koji POs čekaju odobrenje iznad 2000€?_\n- _Show me disputed invoices_\n- _Which items have negative stock?_\n\n### Setup required\n1. Create Moonshot credential (OpenAI API type, Base URL: `https://api.moonshot.ai/v1`, API Key: your `MOONSHOT_API_KEY`)\n2. Attach it to the Kimi K2.5 node\n3. Re-select Airtable credential on each tool node if needed\n4. Re-select table on each tool node if any show red (resolves cachedResultName → real ID)",
+        "height": 420,
+        "width": 520,
+        "color": 6
+      },
+      "id": "48338b77-be7b-45dd-9187-f38f066d3027",
+      "name": "README",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -96,
+        64
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "### Architecture\n```\nChat Trigger ─▶ Agent ─▶ [chooses tool]\n                 ▲  ▲\n        Kimi K2.5  Memory\n```\nAgent has 12 tools, one per table. Tool description tells Kimi which fields exist. Agent writes filterByFormula on the fly.\n\n### Extending\nTo add a new table as a tool: duplicate any `query_*` node, set base + table, rewrite toolDescription. Update the system prompt's tool table. Done.\n\n### Limits\n- 50 records per tool call (hardcoded)\n- No joins — agent chains queries manually\n- Read-only (no writes, no schema changes)\n- If you need ad-hoc SQL, graduate to the SQLite-intermediary pattern (Option C)",
+        "height": 420,
+        "width": 520,
+        "color": 7
+      },
+      "id": "c2a7da59-52c0-4f83-bc81-e1f738121164",
+      "name": "Architecture",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        464,
+        64
+      ],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kimi K2.5 (Moonshot)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_po_log": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_invoices": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_inventory": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_vendors": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_contracts": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_audit_trail": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_requisitions": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_receiving": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_occupancy": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_payment_batch": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_ar_ledger": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_revenue_recon": {
+      "ai_tool": [
+        [
+          {
+            "node": "Data Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "761a4466-b220-439a-b2d8-09124861f4b3",
+  "activeVersionId": null,
+  "versionCounter": 10,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-15T21:15:32.590Z",
+      "createdAt": "2026-04-15T21:15:32.590Z",
+      "role": "workflow:owner",
+      "workflowId": "S0HSmZ27KMgboTAj",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
+}

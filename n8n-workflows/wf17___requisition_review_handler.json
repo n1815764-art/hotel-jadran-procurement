@@ -1,0 +1,389 @@
+{
+  "updatedAt": "2026-04-19T03:43:44.388Z",
+  "createdAt": "2026-04-19T02:50:26.575Z",
+  "id": "vo8vTexPvHtVzzoP",
+  "name": "WF17 — Requisition Review Handler",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "requisition-review",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "28289f9c-8c71-4ae4-b08b-8e356ce858f3",
+      "name": "Webhook - Requisition Review",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "wf17-requisition-review"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize and validate the review payload\nconst body = $input.first().json.body || $input.first().json;\n\nconst validDecisions = ['accept_ai', 'override_original', 'custom_quantity'];\n\nconst requisition_id = body.requisition_id;\nconst record_id = body.record_id || null;\nconst review_decision = body.review_decision;\nconst final_quantity = parseFloat(body.final_quantity);\nconst reviewed_by = body.reviewed_by || 'Unknown';\nconst notes = body.notes || null;\n\nif (!requisition_id) {\n  throw new Error('Missing requisition_id');\n}\nif (!validDecisions.includes(review_decision)) {\n  throw new Error('Invalid review_decision. Expected: ' + validDecisions.join(', ') + '. Got: ' + review_decision);\n}\nif (isNaN(final_quantity) || final_quantity <= 0) {\n  throw new Error('final_quantity must be a positive number. Got: ' + body.final_quantity);\n}\n\nreturn [{\n  json: {\n    requisition_id,\n    record_id,\n    review_decision,\n    final_quantity,\n    reviewed_by,\n    notes,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "edcc1f94-34e4-4dfe-91b2-0369854ae88d",
+      "name": "Code - Validate Review Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, requisition_id: $json.requisition_id, review_decision: $json.review_decision, final_quantity: $json.final_quantity, reviewed_by: $json.reviewed_by, timestamp: $json.timestamp }) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "373d1234-6e6b-4d64-95eb-17a57eec602a",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/Requisition_Log?filterByFormula={{ encodeURIComponent(\"{requisition_id}='\" + $('Code - Validate Review Payload').first().json.requisition_id + \"'\") }}&maxRecords=1",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "8d698095-c7ff-4d2c-9f8c-8ca77bdfc59d",
+      "name": "Airtable - Lookup Requisition",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract requisition data and merge with review context\nconst resp = $input.first().json;\nconst records = resp.records || [];\nconst ctx = $('Code - Validate Review Payload').first().json;\n\nif (records.length === 0) {\n  throw new Error('Requisition not found: ' + ctx.requisition_id);\n}\n\nconst rec = records[0];\nconst f = rec.fields || {};\n\n// Validate it's actually in pending_review status\nconst status = f.status?.name || f.status || '';\nif (status !== 'pending_review') {\n  throw new Error('Requisition ' + ctx.requisition_id + ' is not in pending_review status. Current status: ' + status);\n}\n\nreturn [{\n  json: {\n    // Airtable record\n    airtable_record_id: rec.id,\n    requisition_id: f.requisition_id || ctx.requisition_id,\n    item_name: f.item_name || '',\n    department: f.department || '',\n    unit: f.unit || 'kg',\n    urgency: f.urgency?.name || f.urgency || 'normal',\n    requester: f.requester || '',\n    justification: f.justification || '',\n    original_quantity: parseFloat(f.original_quantity) || parseFloat(f.quantity_requested) || 0,\n    ai_recommended_quantity: parseFloat(f.ai_recommended_quantity) || 0,\n    ai_reason: f.ai_reason || '',\n    // Review context\n    review_decision: ctx.review_decision,\n    final_quantity: ctx.final_quantity,\n    reviewed_by: ctx.reviewed_by,\n    notes: ctx.notes,\n    timestamp: ctx.timestamp\n  }\n}];"
+      },
+      "id": "98f141ec-f23a-4bab-9d1a-2a69cdcad4de",
+      "name": "Code - Extract Requisition Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/Requisition_Log/{{ $json.airtable_record_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ fields: { status: 'review_complete', reviewed_by: $json.reviewed_by, review_date: new Date().toISOString().split('T')[0], review_decision: $json.review_decision, final_quantity: $json.final_quantity } }) }}",
+        "options": {}
+      },
+      "id": "bc505f6d-a134-4305-9a1d-a7c56a1b821a",
+      "name": "Airtable - Update Requisition → review_complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the payload that WF06 expects to create a PO\nconst data = $('Code - Extract Requisition Data').first().json;\n\n// Decision label for audit trail\nconst decisionLabels = {\n  accept_ai: 'Prihvaćena AI preporuka',\n  override_original: 'Vraćeno na originalnu količinu',\n  custom_quantity: 'Prilagođena količina'\n};\nconst decisionLabel = decisionLabels[data.review_decision] || data.review_decision;\n\n// Estimate total from inventory unit cost (WF06 will recalculate if needed)\n// We don't have unit_cost readily available here, so we pass 0 and let WF06 handle it\nconst estimatedTotal = 0;\n\nconst wf06Input = {\n  vendor_name: 'TBD',\n  vendor_email: '',\n  department: data.department,\n  item_name: data.item_name,\n  quantity_requested: data.final_quantity,\n  approved_quantity: data.final_quantity,\n  unit: data.unit,\n  unit_cost: 0,\n  total_amount: estimatedTotal,\n  gl_code: '',\n  source: 'Manual',\n  requester: data.requester,\n  items_json: JSON.stringify([{\n    item_name: data.item_name,\n    quantity: data.final_quantity,\n    unit: data.unit,\n    unit_price: 0\n  }])\n};\n\nconst auditDetails = 'Requisition ' + data.requisition_id + ' reviewed. '\n  + decisionLabel + '. '\n  + 'Original: ' + data.original_quantity + ' ' + data.unit\n  + ' → AI: ' + data.ai_recommended_quantity + ' ' + data.unit\n  + ' → Final: ' + data.final_quantity + ' ' + data.unit\n  + '. Reviewer: ' + data.reviewed_by\n  + (data.notes ? '. Note: ' + data.notes : '');\n\nreturn [{\n  json: {\n    wf06_input: wf06Input,\n    audit_body: JSON.stringify({ records: [{ fields: {\n      reference_id: data.requisition_id,\n      event_type: 'REQUISITION_REVIEWED',\n      actor: data.reviewed_by,\n      details: auditDetails,\n      amount: data.final_quantity\n    } }] }),\n    requisition_id: data.requisition_id,\n    reviewed_by: data.reviewed_by\n  }\n}];"
+      },
+      "id": "c8777192-731c-41fc-bb6e-5f5bcbe833ed",
+      "name": "Code - Build WF06 Input + Audit Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "bOqIhl8Law9FDgTE",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/bOqIhl8Law9FDgTE"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "5b1a60b1-ab2e-4de6-a2bf-7c00c15bf184",
+      "name": "Execute WF06 — Create PO",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1552,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Code - Build WF06 Input + Audit Payload').first().json.audit_body }}",
+        "options": {}
+      },
+      "id": "67128012-f9ba-43e1-b158-fc81b36ad578",
+      "name": "Airtable - Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=✅ *Requisition Review Complete*\n\n{{ $('Code - Build WF06 Input + Audit Payload').first().json.requisition_id }} reviewed by {{ $('Code - Build WF06 Input + Audit Payload').first().json.reviewed_by }}.\nPO creation initiated.",
+        "otherOptions": {}
+      },
+      "id": "a9470a75-0e4d-4767-9096-84bb464eae01",
+      "name": "Slack - Review Complete",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1984,
+        0
+      ],
+      "webhookId": "fcb02b0c-34e7-4c7c-bfb9-41a017f12ef0",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Requisition Review": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate Review Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Validate Review Payload": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Lookup Requisition",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Lookup Requisition": {
+      "main": [
+        [
+          {
+            "node": "Code - Extract Requisition Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extract Requisition Data": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Update Requisition → review_complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Update Requisition → review_complete": {
+      "main": [
+        [
+          {
+            "node": "Code - Build WF06 Input + Audit Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build WF06 Input + Audit Payload": {
+      "main": [
+        [
+          {
+            "node": "Execute WF06 — Create PO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute WF06 — Create PO": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Audit Trail": {
+      "main": [
+        [
+          {
+            "node": "Slack - Review Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "89def868-8941-4320-8c97-516c1000fea7",
+  "activeVersionId": null,
+  "versionCounter": 3,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-22T05:16:27.776Z",
+      "createdAt": "2026-04-22T05:16:27.776Z",
+      "role": "workflow:editor",
+      "workflowId": "vo8vTexPvHtVzzoP",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-19T02:50:26.577Z",
+      "createdAt": "2026-04-19T02:50:26.577Z",
+      "role": "workflow:owner",
+      "workflowId": "vo8vTexPvHtVzzoP",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-17T23:06:46.794Z",
+      "createdAt": "2026-04-17T23:06:46.794Z",
+      "id": "7NRdqGoLgeA0ZrnE",
+      "name": "approvals"
+    },
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": null
+}

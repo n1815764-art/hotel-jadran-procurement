@@ -1,0 +1,556 @@
+{
+  "updatedAt": "2026-04-11T07:11:35.218Z",
+  "createdAt": "2026-04-10T19:35:15.557Z",
+  "id": "fpNXdDtmKLiIvqQ5",
+  "name": "05 - Receiving Update",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "receiving",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "64ab4514-3c1a-4292-8179-366dad3f6264",
+      "name": "Webhook - Delivery",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        208
+      ],
+      "webhookId": "receiving"
+    },
+    {
+      "parameters": {},
+      "id": "3bc0b08a-e276-4647-bc1d-bc2e30652d2e",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate delivery data\nconst data = $input.first().json.body || $input.first().json;\n\nconst required = ['po_number', 'vendor_name', 'delivery_items'];\nconst missing = required.filter(field => !data[field]);\n\nif (missing.length > 0) {\n  return [{ json: { error: 'Missing required fields: ' + missing.join(', '), received: data } }];\n}\n\nif (!Array.isArray(data.delivery_items) || data.delivery_items.length === 0) {\n  return [{ json: { error: 'delivery_items must be a non-empty array', received: data.delivery_items } }];\n}\n\nconst receivingId = 'REC-' + new Date().getFullYear() + '-' + String(Date.now()).slice(-4);\n\nconst items = data.delivery_items.map(item => ({\n  item_name: item.item_name,\n  qty_ordered: item.quantity_ordered || 0,\n  qty_received: item.quantity_received || 0,\n  unit: item.unit || 'each',\n  condition_notes: item.notes || 'Good'\n}));\n\nconst hasDiscrepancy = items.some(i => i.qty_ordered !== i.qty_received);\n\nreturn [{ json: {\n  receiving_id: receivingId,\n  po_number: data.po_number,\n  vendor_name: data.vendor_name,\n  date_received: data.delivery_date || new Date().toISOString().split('T')[0],\n  received_by: data.received_by || 'Unknown',\n  items: items,\n  items_received_json: JSON.stringify(items),\n  has_discrepancy: hasDiscrepancy,\n  temperature: data.temperature || null,\n  quality_issues: data.quality_issues || false\n} }];"
+      },
+      "id": "defec33f-7c92-41ab-842d-30ec73c72654",
+      "name": "Validate Delivery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "=FIND(SUBSTITUTE(SUBSTITUTE(\"{{ $json.po_number }}\",\"PO\",\"\"),\" \",\"\"),SUBSTITUTE(SUBSTITUTE({po_number},\"PO\",\"\"),\" \",\"\"))>0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "61a2a8b4-c1c0-448b-af84-468e57c5d967",
+      "name": "Get PO Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Receiving_Log record\nconst delivery = $('Validate Delivery').first().json;\nconst poResp = $input.first().json;\nconst poFound = poResp.records?.length > 0;\n\nconst status = delivery.has_discrepancy ? 'Partial' : 'Complete';\n\nconst createBody = JSON.stringify({ records: [{ fields: {\n  receiving_id: delivery.receiving_id,\n  po_number: delivery.po_number,\n  vendor_name: delivery.vendor_name,\n  date_received: delivery.date_received,\n  received_by: delivery.received_by,\n  items_received_json: delivery.items_received_json,\n  status: status,\n  notes: delivery.quality_issues ? 'Quality issues reported' : ''\n} }] });\n\nreturn [{ json: { ...delivery, po_found: poFound, create_body: createBody } }];"
+      },
+      "id": "0f2cf15c-9b7b-49cd-bfb6-4c84d89f6b0c",
+      "name": "Code - Prepare Receiving Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Receiving_Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.create_body }}",
+        "options": {}
+      },
+      "id": "2aa17a9c-ed8a-4b68-b045-79b074f43d42",
+      "name": "Save to Receiving_Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $('Code - Prepare Receiving Record').first().json.has_discrepancy }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "72c8c29e-a799-4fa0-b39a-3abae09738c0",
+      "name": "Has Discrepancy?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build discrepancy details for Slack and AI\nconst data = $('Code - Prepare Receiving Record').first().json;\nconst items = data.items || [];\nconst discrepancies = items.filter(i => i.qty_ordered !== i.qty_received);\n\nconst discList = discrepancies.map(d => d.item_name + ': ordered ' + d.qty_ordered + ', received ' + d.qty_received + ' ' + d.unit).join('\\n');\n\nconst slackMsg = '⚠️ *Delivery Discrepancy Detected*\\n\\nPO: ' + data.po_number + '\\nVendor: ' + data.vendor_name + '\\nReceived by: ' + data.received_by + '\\n\\n*Discrepancies:*\\n' + discList + '\\n\\n@controller';\n\nconst auditBody = JSON.stringify({ records: [{ fields: {\n  reference_id: data.receiving_id,\n  event_type: 'Approved',\n  actor: data.received_by,\n  details: 'Delivery received for ' + data.po_number + ' from ' + data.vendor_name + (data.has_discrepancy ? ' — DISCREPANCY: ' + discList : ' — Complete, no issues')\n} }] });\n\nreturn [{ json: { slack_msg: slackMsg, audit_body: auditBody, ...data } }];"
+      },
+      "id": "b62da1f3-8fc2-4414-9f1e-afd4aa748274",
+      "name": "Code - Build Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "={{ $json.slack_msg }}",
+        "otherOptions": {}
+      },
+      "id": "78ee0153-1566-4f0e-9401-7eab4a2e7764",
+      "name": "Slack - Alert Discrepancy",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1568,
+        112
+      ],
+      "webhookId": "ab60be65-9390-4e0c-8272-f0da925858a3",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// No discrepancy path - build audit body\nconst data = $('Code - Prepare Receiving Record').first().json;\n\nconst auditBody = JSON.stringify({ records: [{ fields: {\n  reference_id: data.receiving_id,\n  event_type: 'Approved',\n  actor: data.received_by,\n  details: 'Delivery received for ' + data.po_number + ' from ' + data.vendor_name + ' — Complete, no issues'\n} }] });\n\nreturn [{ json: { audit_body: auditBody, ...data } }];"
+      },
+      "id": "f715be39-fb74-46ad-ad76-505b6eb6b6c8",
+      "name": "Code - No Discrepancy Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.audit_body }}",
+        "options": {}
+      },
+      "id": "70eee436-faf9-46ee-a6f2-5f3c9768a8c4",
+      "name": "Airtable - Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1872,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, receiving_id: $('Validate Delivery').first().json.receiving_id, status: 'recorded' }) }}",
+        "options": {}
+      },
+      "id": "02336432-5244-4cb1-944a-f069e49e39e0",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2096,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let auditBody;\ntry {\n  auditBody = $('Code - Build Details').first().json.audit_body;\n} catch(e) {\n  auditBody = $('Code - No Discrepancy Audit').first().json.audit_body;\n}\nreturn [{ json: { audit_body: auditBody } }];"
+      },
+      "id": "483c5d8c-98cf-401e-becf-085c80d1be36",
+      "name": "Code - Merge Audit Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1616,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const delivery = $('Code - Prepare Receiving Record').first().json;\nconst poResp = $('Get PO Data').first().json;\nconst poRecordId = poResp.records && poResp.records.length > 0 ? poResp.records[0].id : null;\nconst newStatus = delivery.has_discrepancy ? 'Partially Received' : 'Fully Received';\n\nif (!poRecordId) {\n  return [{ json: { ...delivery, po_record_id: null, po_new_status: newStatus, skip_po_update: true } }];\n}\n\nconst updateBody = JSON.stringify({ fields: { status: newStatus } });\nreturn [{ json: { ...delivery, po_record_id: poRecordId, po_new_status: newStatus, skip_po_update: false, po_update_body: updateBody } }];"
+      },
+      "id": "310eccf3-82b6-406b-a504-8787d035d6d5",
+      "name": "Code - Prepare PO Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log/{{ $json.po_record_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.po_update_body }}",
+        "options": {}
+      },
+      "id": "ba743d1b-fc07-4433-9817-9fd2cf9e1423",
+      "name": "Airtable - Update PO Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        432
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      },
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Webhook - Delivery": {
+      "main": [
+        [
+          {
+            "node": "Validate Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Validate Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Delivery": {
+      "main": [
+        [
+          {
+            "node": "Get PO Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get PO Data": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Receiving Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Receiving Record": {
+      "main": [
+        [
+          {
+            "node": "Save to Receiving_Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Receiving_Log": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare PO Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Discrepancy?": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Details",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - No Discrepancy Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Details": {
+      "main": [
+        [
+          {
+            "node": "Slack - Alert Discrepancy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Alert Discrepancy": {
+      "main": [
+        [
+          {
+            "node": "Code - Merge Audit Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - No Discrepancy Audit": {
+      "main": [
+        [
+          {
+            "node": "Code - Merge Audit Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Audit Trail": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Merge Audit Path": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare PO Status": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Update PO Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Update PO Status": {
+      "main": [
+        [
+          {
+            "node": "Has Discrepancy?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "When clicking \"Test workflow\"": [
+      {
+        "json": {
+          "body": {
+            "po_number": "- 2026-0112",
+            "vendor_name": "Sysco Foodservice",
+            "received_by": "Vasilije",
+            "delivery_date": "2026-03-29",
+            "delivery_items": [
+              {
+                "item_name": "Chicken Breast (per lb)",
+                "quantity_ordered": 50,
+                "quantity_received": 48,
+                "unit": "lb",
+                "notes": "2 lb short"
+              },
+              {
+                "item_name": "Beef Tenderloin (per lb)",
+                "quantity_ordered": 20,
+                "quantity_received": 20,
+                "unit": "lb"
+              },
+              {
+                "item_name": "Spaghetti Pasta 10lb case",
+                "quantity_ordered": 5,
+                "quantity_received": 5,
+                "unit": "case"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "versionId": "17edb90e-eb7c-4fcb-8b52-b4da7c30c6f3",
+  "activeVersionId": null,
+  "versionCounter": 7,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:22:24.606Z",
+      "createdAt": "2026-04-12T00:22:24.606Z",
+      "role": "workflow:editor",
+      "workflowId": "fpNXdDtmKLiIvqQ5",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:35:15.559Z",
+      "createdAt": "2026-04-10T19:35:15.559Z",
+      "role": "workflow:owner",
+      "workflowId": "fpNXdDtmKLiIvqQ5",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": null
+}

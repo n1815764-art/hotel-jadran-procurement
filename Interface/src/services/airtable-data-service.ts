@@ -353,43 +353,13 @@ export class AirtableDataService implements DataService {
     await patchRecord(TABLES.PO_LOG, po._recordId, fields);
   }
 
-  async approvePO(poNumber: string, approvedBy: string): Promise<void> {
-    // 1. Update Airtable status
-    await this.updatePurchaseOrderStatus(poNumber, "Approved", approvedBy);
-
-    // 2. Get PO data for webhook
-    const po = await this.getPurchaseOrderByNumber(poNumber);
-    if (!po) return;
-
-    // 3. Call n8n WF06 to send vendor email
-    try {
-      await fetch(`${N8N_BASE}/webhook/po-creation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vendor_name: po.vendor_name,
-          vendor_email: "",
-          department: po.department,
-          total_amount: po.total_amount,
-          items_json: JSON.stringify(po.items),
-          gl_code: po.gl_account,
-          source: po.source,
-          requester: po.requester,
-        }),
-      });
-    } catch {
-      // n8n might not be running — approval still recorded in Airtable
-    }
+  async approvePO(_poNumber: string, _approvedBy: string): Promise<void> {
+    // WF16 handles the full approve flow: PO_Log PATCH + Kimi email + Audit_Trail write
+    // approval-service.ts calls the WF16 webhook directly — nothing to do here
   }
 
-  async rejectPO(poNumber: string, reason?: string): Promise<void> {
-    const po = await this.getPurchaseOrderByNumber(poNumber);
-    if (!po?._recordId) throw new Error(`PO ${poNumber} not found`);
-
-    const fields: Record<string, unknown> = { status: "Cancelled" };
-    if (reason) fields.notes = `${po.ai_note}\n\nRejection reason: ${reason}`;
-
-    await patchRecord(TABLES.PO_LOG, po._recordId, fields);
+  async rejectPO(_poNumber: string, _reason?: string): Promise<void> {
+    // WF16 handles the full reject flow: PO_Log PATCH + Audit_Trail write
   }
 
   async getInvoices(status?: string): Promise<Invoice[]> {

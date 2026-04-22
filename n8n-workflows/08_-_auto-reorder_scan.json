@@ -1,0 +1,1156 @@
+{
+  "updatedAt": "2026-04-12T01:36:32.400Z",
+  "createdAt": "2026-04-10T19:34:31.804Z",
+  "id": "VBCWK2mmRl9ov05Q",
+  "name": "08 - Auto-Reorder Scan",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "841fe680-95d6-46fd-a28b-0b497f6848a4",
+      "name": "Cron - 6AM Daily Scan",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        208
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "791e6009-9505-43ee-89bc-faf532181fc6",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Inventory%20with%20Par%20Levels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "{Current Stock}<={Reorder Point}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3ab34ce6-6994-466e-9e93-5fd6544b36fa",
+      "name": "Airtable - Get Items Below Reorder Point",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-items",
+              "leftValue": "={{ $json.records.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a65f5cc0-33c8-42b5-8296-7c01e40f92d0",
+      "name": "IF Any Items Below Par",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        448,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Occupancy%20Data",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "8cb2de32-83a4-488b-a3d1-c1f7d96608c2",
+      "name": "Airtable - Get Occupancy Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge inventory items with occupancy context\nconst inventoryResp = $('Airtable - Get Items Below Reorder Point').first().json;\nconst occResp = $input.first().json;\nconst items = inventoryResp.records || [];\nconst occRecords = occResp.records || [];\n\n// Calculate average occupancy\nconst avgOcc = occRecords.length > 0\n  ? Math.round(occRecords.reduce((s, r) => s + (r.fields['Occupancy %'] || 0.75) * 100, 0) / occRecords.length)\n  : 75;\n\n// Get events\nconst events = occRecords\n  .filter(r => r.fields.Events && r.fields.Events.trim())\n  .map(r => r.fields.Events)\n  .join('; ') || 'None';\n\n// Output one item per record for the loop\nconst results = items.map(item => ({\n  json: {\n    ...item.fields,\n    item_record_id: item.id,\n    item_name: item.fields.Name || '',\n    current_stock: item.fields['Current Stock'] || 0,\n    par_level: item.fields['Par Level'] || 0,\n    reorder_point: item.fields['Reorder Point'] || 0,\n    unit: item.fields.Unit || 'each',\n    unit_cost: item.fields['Unit Cost'] || 0,\n    category: item.fields.Category || '',\n    occupancy_avg: avgOcc,\n    events: events\n  }\n}));\n\nreturn results.length > 0 ? results : [{ json: { no_items: true } }];"
+      },
+      "id": "d1d93fc5-ef5f-40db-b996-9f69d0769663",
+      "name": "Code - Merge Items with Occupancy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "negative",
+              "leftValue": "={{ $json.current_stock }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "40f46157-4b21-42bd-9ed9-74760e90d24e",
+      "name": "IF Negative Stock (Data Error)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=🚨 *NEGATIVE STOCK DETECTED* — {{ $json.item_name }}\n\nCurrent stock: {{ $json.current_stock }} {{ $json.unit }} (physically impossible)\nThis is NOT a real shortage — do not order manually.\n\nLikely cause: Recipe configuration error in POS2.\nAuto-reorder has been SUSPENDED for this item.\n\nFull diagnosis will run at 10 PM tonight.\n@controller @chef",
+        "otherOptions": {}
+      },
+      "id": "0286c34f-529a-4668-ab70-8be1f481e94d",
+      "name": "Slack - Negative Stock Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1344,
+        80
+      ],
+      "webhookId": "3eb3f589-9ff3-4102-ac40-3c220c5192c5",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOONSHOT_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 400, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are a hotel procurement AI optimizing order quantities. Calculate the optimal order based on current stock, par level, occupancy forecast, and events. Include safety buffer. If current_stock is negative, respond with {\"optimal_qty\": 0, \"order_total\": 0, \"reasoning\": \"BLOCKED — negative stock data error\", \"data_error\": true}. Respond ONLY in valid JSON. No markdown, no backticks.' }, { role: 'user', content: 'Calculate optimal order:\\nItem: ' + $json.item_name + ' (' + $json.category + ')\\nUnit: ' + $json.unit + '\\nCurrent Stock: ' + $json.current_stock + '\\nPar Level: ' + $json.par_level + '\\nReorder Point: ' + $json.reorder_point + '\\nUnit Cost: $' + $json.unit_cost + '\\nAvg Occupancy Next 7 Days: ' + $json.occupancy_avg + '%\\nEvents: ' + $json.events + '\\n\\nRespond: {\"optimal_qty\": N, \"order_total\": N, \"days_of_supply\": N, \"reasoning\": \"...\", \"data_error\": false}' }] }) }}",
+        "options": {}
+      },
+      "id": "46b3cdf2-8df0-4606-bd16-b298f0ab4aa1",
+      "name": "AI - Optimize Order Qty",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst content = response.choices[0].message.content;\nconst parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\n\nlet itemData;\ntry { itemData = $('IF Negative Stock (Data Error)').first().json; }\ncatch(e) { itemData = $('Code - Merge Items with Occupancy').first().json; }\n\nreturn [{ json: { ...parsed, item_name: itemData.item_name, unit: itemData.unit, current_stock: itemData.current_stock, unit_cost: itemData.unit_cost, category: itemData.category } }];"
+      },
+      "id": "bec431d3-4813-4410-81d7-8ae90df53d73",
+      "name": "Code - Parse AI Qty Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "should-order",
+              "leftValue": "={{ $json.optimal_qty }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "16504962-c193-423c-b24d-ccb436d79e37",
+      "name": "IF Should Order",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=📦 *Auto-Reorder Triggered*\n\nItem: {{ $json.item_name }}\nCurrent Stock: {{ $json.current_stock }} {{ $json.unit }}\nOrder Qty: {{ $json.optimal_qty }} {{ $json.unit }}\nEstimated Cost: €{{ $json.order_total }}\nReason: {{ $json.reasoning }}",
+        "otherOptions": {}
+      },
+      "id": "0ecebcd4-2797-4fb4-b647-e391f7d54f0f",
+      "name": "Slack - Order Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        2016,
+        208
+      ],
+      "webhookId": "bda8c2f7-6082-421a-8686-707e3d5fa3d7",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build daily summary\nconst items = $input.all();\nlet summary = '📋 *AUTO-REORDER SCAN COMPLETE* — ' + new Date().toISOString().split('T')[0] + '\\n\\n';\n\nconst ordered = items.filter(i => i.json.optimal_qty > 0 && !i.json.data_error);\nconst blocked = items.filter(i => i.json.data_error);\nconst skipped = items.filter(i => !i.json.optimal_qty && !i.json.data_error && !i.json.no_items);\n\nif (ordered.length > 0) {\n  summary += '*Orders Triggered (' + ordered.length + '):*\\n';\n  ordered.forEach(i => { summary += '  ' + i.json.item_name + ': ' + i.json.optimal_qty + ' ' + i.json.unit + ' (€' + i.json.order_total + ')\\n'; });\n}\nif (blocked.length > 0) {\n  summary += '\\n*BLOCKED — Data Errors (' + blocked.length + '):*\\n';\n  blocked.forEach(i => { summary += '  ' + i.json.item_name + ': stock at ' + i.json.current_stock + ' — NEGATIVE STOCK\\n'; });\n}\nif (ordered.length === 0 && blocked.length === 0) {\n  summary += 'All items above par or no items need reordering today.';\n}\n\nconst auditBody = JSON.stringify({ records: [{ fields: { reference_id: 'SCAN-' + new Date().toISOString().split('T')[0], event_type: 'Approved', actor: 'System', details: 'Auto-reorder scan: ' + ordered.length + ' orders, ' + blocked.length + ' blocked' } }] });\n\nreturn [{ json: { summary: summary, audit_body: auditBody } }];"
+      },
+      "id": "522435f3-98dc-4cbe-a640-c753f45d2bb1",
+      "name": "Code - Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "={{ $json.summary }}",
+        "otherOptions": {}
+      },
+      "id": "63fe7b2b-173f-4d34-9111-808fbc375845",
+      "name": "Slack - Post Reorder Summary",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        2464,
+        208
+      ],
+      "webhookId": "5e2c096d-30db-4877-a32e-bce8f2bfeda6",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Code - Build Summary').first().json.audit_body }}",
+        "options": {}
+      },
+      "id": "00bd7c5b-70ba-43a6-824e-0db7b13e36a5",
+      "name": "Airtable - Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2688,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron - 6AM Daily Scan": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Items Below Reorder Point",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Items Below Reorder Point",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Items Below Reorder Point": {
+      "main": [
+        [
+          {
+            "node": "IF Any Items Below Par",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Any Items Below Par": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Occupancy Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Occupancy Data": {
+      "main": [
+        [
+          {
+            "node": "Code - Merge Items with Occupancy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Merge Items with Occupancy": {
+      "main": [
+        [
+          {
+            "node": "IF Negative Stock (Data Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Negative Stock (Data Error)": {
+      "main": [
+        [
+          {
+            "node": "Slack - Negative Stock Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI - Optimize Order Qty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Negative Stock Alert": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Optimize Order Qty": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse AI Qty Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse AI Qty Response": {
+      "main": [
+        [
+          {
+            "node": "IF Should Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Should Order": {
+      "main": [
+        [
+          {
+            "node": "Slack - Order Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Order Notification": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Summary": {
+      "main": [
+        [
+          {
+            "node": "Slack - Post Reorder Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Post Reorder Summary": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "node:Cron - 6AM Daily Scan": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "f40e4fa7-27d3-4809-a5c0-b5ff98ac6318",
+  "activeVersionId": "de0026f0-38f6-4be0-ad71-313b93a48c59",
+  "versionCounter": 13,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:23:16.588Z",
+      "createdAt": "2026-04-12T00:23:16.588Z",
+      "role": "workflow:editor",
+      "workflowId": "VBCWK2mmRl9ov05Q",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:34:31.806Z",
+      "createdAt": "2026-04-10T19:34:31.806Z",
+      "role": "workflow:owner",
+      "workflowId": "VBCWK2mmRl9ov05Q",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-04-12T00:50:38.000Z",
+    "createdAt": "2026-04-11T07:18:26.542Z",
+    "versionId": "de0026f0-38f6-4be0-ad71-313b93a48c59",
+    "workflowId": "VBCWK2mmRl9ov05Q",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 6 * * *"
+              }
+            ]
+          }
+        },
+        "id": "841fe680-95d6-46fd-a28b-0b497f6848a4",
+        "name": "Cron - 6AM Daily Scan",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          208
+        ]
+      },
+      {
+        "parameters": {},
+        "id": "791e6009-9505-43ee-89bc-faf532181fc6",
+        "name": "When clicking \"Test workflow\"",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Inventory%20with%20Par%20Levels",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "filterByFormula",
+                "value": "{Current Stock}<={Reorder Point}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "3ab34ce6-6994-466e-9e93-5fd6544b36fa",
+        "name": "Airtable - Get Items Below Reorder Point",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          224,
+          208
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "has-items",
+                "leftValue": "={{ $json.records.length }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "a65f5cc0-33c8-42b5-8296-7c01e40f92d0",
+        "name": "IF Any Items Below Par",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          448,
+          208
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Occupancy%20Data",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "options": {}
+        },
+        "id": "8cb2de32-83a4-488b-a3d1-c1f7d96608c2",
+        "name": "Airtable - Get Occupancy Data",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          672,
+          208
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Merge inventory items with occupancy context\nconst inventoryResp = $('Airtable - Get Items Below Reorder Point').first().json;\nconst occResp = $input.first().json;\nconst items = inventoryResp.records || [];\nconst occRecords = occResp.records || [];\n\n// Calculate average occupancy\nconst avgOcc = occRecords.length > 0\n  ? Math.round(occRecords.reduce((s, r) => s + (r.fields['Occupancy %'] || 0.75) * 100, 0) / occRecords.length)\n  : 75;\n\n// Get events\nconst events = occRecords\n  .filter(r => r.fields.Events && r.fields.Events.trim())\n  .map(r => r.fields.Events)\n  .join('; ') || 'None';\n\n// Output one item per record for the loop\nconst results = items.map(item => ({\n  json: {\n    ...item.fields,\n    item_record_id: item.id,\n    item_name: item.fields.Name || '',\n    current_stock: item.fields['Current Stock'] || 0,\n    par_level: item.fields['Par Level'] || 0,\n    reorder_point: item.fields['Reorder Point'] || 0,\n    unit: item.fields.Unit || 'each',\n    unit_cost: item.fields['Unit Cost'] || 0,\n    category: item.fields.Category || '',\n    occupancy_avg: avgOcc,\n    events: events\n  }\n}));\n\nreturn results.length > 0 ? results : [{ json: { no_items: true } }];"
+        },
+        "id": "d1d93fc5-ef5f-40db-b996-9f69d0769663",
+        "name": "Code - Merge Items with Occupancy",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          896,
+          208
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "negative",
+                "leftValue": "={{ $json.current_stock }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "lt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "40f46157-4b21-42bd-9ed9-74760e90d24e",
+        "name": "IF Negative Stock (Data Error)",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          208
+        ]
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=🚨 *NEGATIVE STOCK DETECTED* — {{ $json.item_name }}\n\nCurrent stock: {{ $json.current_stock }} {{ $json.unit }} (physically impossible)\nThis is NOT a real shortage — do not order manually.\n\nLikely cause: Recipe configuration error in POS2.\nAuto-reorder has been SUSPENDED for this item.\n\nFull diagnosis will run at 10 PM tonight.\n@controller @chef",
+          "otherOptions": {}
+        },
+        "id": "0286c34f-529a-4668-ab70-8be1f481e94d",
+        "name": "Slack - Negative Stock Alert",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          1344,
+          80
+        ],
+        "webhookId": "3eb3f589-9ff3-4102-ac40-3c220c5192c5",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.moonshot.ai/v1/chat/completions",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.MOONSHOT_API_KEY }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 400, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are a hotel procurement AI optimizing order quantities. Calculate the optimal order based on current stock, par level, occupancy forecast, and events. Include safety buffer. If current_stock is negative, respond with {\"optimal_qty\": 0, \"order_total\": 0, \"reasoning\": \"BLOCKED — negative stock data error\", \"data_error\": true}. Respond ONLY in valid JSON. No markdown, no backticks.' }, { role: 'user', content: 'Calculate optimal order:\\nItem: ' + $json.item_name + ' (' + $json.category + ')\\nUnit: ' + $json.unit + '\\nCurrent Stock: ' + $json.current_stock + '\\nPar Level: ' + $json.par_level + '\\nReorder Point: ' + $json.reorder_point + '\\nUnit Cost: $' + $json.unit_cost + '\\nAvg Occupancy Next 7 Days: ' + $json.occupancy_avg + '%\\nEvents: ' + $json.events + '\\n\\nRespond: {\"optimal_qty\": N, \"order_total\": N, \"days_of_supply\": N, \"reasoning\": \"...\", \"data_error\": false}' }] }) }}",
+          "options": {}
+        },
+        "id": "46b3cdf2-8df0-4606-bd16-b298f0ab4aa1",
+        "name": "AI - Optimize Order Qty",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1344,
+          320
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const response = $input.first().json;\nconst content = response.choices[0].message.content;\nconst parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\n\nlet itemData;\ntry { itemData = $('IF Negative Stock (Data Error)').first().json; }\ncatch(e) { itemData = $('Code - Merge Items with Occupancy').first().json; }\n\nreturn [{ json: { ...parsed, item_name: itemData.item_name, unit: itemData.unit, current_stock: itemData.current_stock, unit_cost: itemData.unit_cost, category: itemData.category } }];"
+        },
+        "id": "bec431d3-4813-4410-81d7-8ae90df53d73",
+        "name": "Code - Parse AI Qty Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1568,
+          320
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "should-order",
+                "leftValue": "={{ $json.optimal_qty }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "16504962-c193-423c-b24d-ccb436d79e37",
+        "name": "IF Should Order",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1792,
+          320
+        ]
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=📦 *Auto-Reorder Triggered*\n\nItem: {{ $json.item_name }}\nCurrent Stock: {{ $json.current_stock }} {{ $json.unit }}\nOrder Qty: {{ $json.optimal_qty }} {{ $json.unit }}\nEstimated Cost: €{{ $json.order_total }}\nReason: {{ $json.reasoning }}",
+          "otherOptions": {}
+        },
+        "id": "0ecebcd4-2797-4fb4-b647-e391f7d54f0f",
+        "name": "Slack - Order Notification",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          2016,
+          208
+        ],
+        "webhookId": "bda8c2f7-6082-421a-8686-707e3d5fa3d7",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Build daily summary\nconst items = $input.all();\nlet summary = '📋 *AUTO-REORDER SCAN COMPLETE* — ' + new Date().toISOString().split('T')[0] + '\\n\\n';\n\nconst ordered = items.filter(i => i.json.optimal_qty > 0 && !i.json.data_error);\nconst blocked = items.filter(i => i.json.data_error);\nconst skipped = items.filter(i => !i.json.optimal_qty && !i.json.data_error && !i.json.no_items);\n\nif (ordered.length > 0) {\n  summary += '*Orders Triggered (' + ordered.length + '):*\\n';\n  ordered.forEach(i => { summary += '  ' + i.json.item_name + ': ' + i.json.optimal_qty + ' ' + i.json.unit + ' (€' + i.json.order_total + ')\\n'; });\n}\nif (blocked.length > 0) {\n  summary += '\\n*BLOCKED — Data Errors (' + blocked.length + '):*\\n';\n  blocked.forEach(i => { summary += '  ' + i.json.item_name + ': stock at ' + i.json.current_stock + ' — NEGATIVE STOCK\\n'; });\n}\nif (ordered.length === 0 && blocked.length === 0) {\n  summary += 'All items above par or no items need reordering today.';\n}\n\nconst auditBody = JSON.stringify({ records: [{ fields: { reference_id: 'SCAN-' + new Date().toISOString().split('T')[0], event_type: 'Approved', actor: 'System', details: 'Auto-reorder scan: ' + ordered.length + ' orders, ' + blocked.length + ' blocked' } }] });\n\nreturn [{ json: { summary: summary, audit_body: auditBody } }];"
+        },
+        "id": "522435f3-98dc-4cbe-a640-c753f45d2bb1",
+        "name": "Code - Build Summary",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2240,
+          208
+        ]
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "={{ $json.summary }}",
+          "otherOptions": {}
+        },
+        "id": "63fe7b2b-173f-4d34-9111-808fbc375845",
+        "name": "Slack - Post Reorder Summary",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          2464,
+          208
+        ],
+        "webhookId": "5e2c096d-30db-4877-a32e-bce8f2bfeda6",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $('Code - Build Summary').first().json.audit_body }}",
+          "options": {}
+        },
+        "id": "00bd7c5b-70ba-43a6-824e-0db7b13e36a5",
+        "name": "Airtable - Audit Trail",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2688,
+          208
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Cron - 6AM Daily Scan": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Get Items Below Reorder Point",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "When clicking \"Test workflow\"": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Get Items Below Reorder Point",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Get Items Below Reorder Point": {
+        "main": [
+          [
+            {
+              "node": "IF Any Items Below Par",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Any Items Below Par": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Get Occupancy Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Get Occupancy Data": {
+        "main": [
+          [
+            {
+              "node": "Code - Merge Items with Occupancy",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Merge Items with Occupancy": {
+        "main": [
+          [
+            {
+              "node": "IF Negative Stock (Data Error)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Negative Stock (Data Error)": {
+        "main": [
+          [
+            {
+              "node": "Slack - Negative Stock Alert",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "AI - Optimize Order Qty",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Negative Stock Alert": {
+        "main": [
+          [
+            {
+              "node": "Code - Build Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "AI - Optimize Order Qty": {
+        "main": [
+          [
+            {
+              "node": "Code - Parse AI Qty Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Parse AI Qty Response": {
+        "main": [
+          [
+            {
+              "node": "IF Should Order",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Should Order": {
+        "main": [
+          [
+            {
+              "node": "Slack - Order Notification",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Build Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Order Notification": {
+        "main": [
+          [
+            {
+              "node": "Code - Build Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Build Summary": {
+        "main": [
+          [
+            {
+              "node": "Slack - Post Reorder Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Post Reorder Summary": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Audit Trail",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Martin Cupic",
+    "name": "Version de0026f0",
+    "description": "",
+    "autosaved": true,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-12T00:50:38.799Z",
+        "id": 4,
+        "workflowId": "VBCWK2mmRl9ov05Q",
+        "versionId": "de0026f0-38f6-4be0-ad71-313b93a48c59",
+        "event": "activated",
+        "userId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    ]
+  }
+}

@@ -1,0 +1,378 @@
+{
+  "updatedAt": "2026-04-11T07:19:06.938Z",
+  "createdAt": "2026-04-10T19:33:57.469Z",
+  "id": "rO5Ky8LIHaVqf8Jw",
+  "name": "11 - Contract Expiry Monitor",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "269ba106-3703-40a9-8d2a-8f81d6cad2fb",
+      "name": "Cron - 9AM Daily Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        208
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "8470c5eb-543d-4f74-8de2-65247c74147f",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Vendor_Contracts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "AND({status}=\"Active\",{end_date}>=TODAY())"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "463aa4bf-0171-42b0-af40-f759f4dfb0c1",
+      "name": "Airtable - Get Active Contracts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "has-contracts",
+              "leftValue": "={{ $json.records.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fb329336-63f3-4064-b7f6-c25fbcf01969",
+      "name": "IF Any Contracts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        448,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process each contract and determine alert level\nconst records = $input.first().json.records || [];\nconst today = new Date();\nconst results = [];\n\nfor (const rec of records) {\n  const c = rec.fields;\n  const endDate = new Date(c.end_date);\n  const daysLeft = Math.ceil((endDate - today) / (1000*60*60*24));\n\n  if (daysLeft > 90) continue; // Not expiring soon\n\n  let alertLevel = 'none';\n  let sendAlert = false;\n\n  if (daysLeft <= 30 && !c.alert_30_sent) { alertLevel = '30_DAY'; sendAlert = true; }\n  else if (daysLeft <= 60 && daysLeft > 30 && !c.alert_60_sent) { alertLevel = '60_DAY'; sendAlert = true; }\n  else if (daysLeft <= 90 && daysLeft > 60 && !c.alert_90_sent) { alertLevel = '90_DAY'; sendAlert = true; }\n\n  if (sendAlert) {\n    results.push({ json: {\n      ...c, record_id: rec.id, days_left: daysLeft,\n      alert_level: alertLevel, send_alert: sendAlert\n    } });\n  }\n}\n\nreturn results.length > 0 ? results : [{ json: { no_alerts: true } }];"
+      },
+      "id": "97d9959e-fb79-4f71-9a90-18e486bd8e1c",
+      "name": "Code - Calculate Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "should-send",
+              "leftValue": "={{ $json.send_alert }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c3cdca0e-3d41-484e-9ec5-82fbbe8e1e63",
+      "name": "IF Should Alert",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        896,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nlet emoji = '📋';\nlet urgency = '';\nif (data.days_left <= 30) { emoji = '🚨'; urgency = 'URGENT — '; }\nelse if (data.days_left <= 60) { emoji = '⚠️'; urgency = ''; }\n\nconst msg = emoji + ' *' + urgency + 'Contract Expiring in ' + data.days_left + ' days*\\n\\nVendor: ' + data.vendor_name + '\\nContract: ' + (data.contract_type || 'Standard') + '\\nEnd Date: ' + data.end_date + '\\nValue: €' + (data.total_value || 'N/A') + '\\n\\n' + (data.days_left <= 30 ? '@controller @gm — Immediate action required' : data.days_left <= 60 ? 'Renewal proposal should be sent. @controller' : 'Begin reviewing renewal terms. @controller');\n\nreturn [{ json: { ...data, slack_msg: msg } }];"
+      },
+      "id": "10ddca28-d6dc-42c0-8a31-502454027385",
+      "name": "Code - Build Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "={{ $json.slack_msg }}",
+        "otherOptions": {}
+      },
+      "id": "44670902-71f6-4f1a-a8a6-e24da9222f06",
+      "name": "Slack - Contract Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1344,
+        208
+      ],
+      "webhookId": "e57c6f05-c85d-4888-ac1c-3505e73b657a",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Airtable update to mark alert as sent\nconst data = $('Code - Build Alert').first().json;\nconst alertNum = data.alert_level.replace('_DAY', '');\n\nconst updateBody = JSON.stringify({ fields: {} });\n// We'll handle this via direct PATCH since dynamic field names are tricky\nconst fieldName = 'alert_' + alertNum + '_sent';\n\nreturn [{ json: { record_id: data.record_id, field_name: fieldName, update_body: JSON.stringify({ fields: { [fieldName]: true } }) } }];"
+      },
+      "id": "61d28edb-d30a-4ff7-8da8-dc2de08d844e",
+      "name": "Code - Prep Mark Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/Vendor_Contracts/{{ $json.record_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.update_body }}",
+        "options": {}
+      },
+      "id": "841ead15-1a36-4eb4-b923-9e2dfaba67f8",
+      "name": "Airtable - Mark Alert Sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron - 9AM Daily Check": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Active Contracts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Active Contracts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Active Contracts": {
+      "main": [
+        [
+          {
+            "node": "IF Any Contracts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Any Contracts": {
+      "main": [
+        [
+          {
+            "node": "Code - Calculate Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Calculate Alerts": {
+      "main": [
+        [
+          {
+            "node": "IF Should Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Should Alert": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Alert": {
+      "main": [
+        [
+          {
+            "node": "Slack - Contract Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Contract Alert": {
+      "main": [
+        [
+          {
+            "node": "Code - Prep Mark Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prep Mark Sent": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Mark Alert Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "13317fea-8e1b-41ef-9b3c-4acb2616b38c",
+  "activeVersionId": null,
+  "versionCounter": 4,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:23:37.678Z",
+      "createdAt": "2026-04-12T00:23:37.678Z",
+      "role": "workflow:editor",
+      "workflowId": "rO5Ky8LIHaVqf8Jw",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:33:57.471Z",
+      "createdAt": "2026-04-10T19:33:57.471Z",
+      "role": "workflow:owner",
+      "workflowId": "rO5Ky8LIHaVqf8Jw",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": null
+}

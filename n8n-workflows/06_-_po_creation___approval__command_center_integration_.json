@@ -1,0 +1,1489 @@
+{
+  "updatedAt": "2026-04-19T03:06:41.941Z",
+  "createdAt": "2026-04-17T23:07:03.293Z",
+  "id": "bOqIhl8Law9FDgTE",
+  "name": "06 - PO Creation & Approval (Command Center Integration)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        224
+      ],
+      "id": "035bfebc-7643-4b02-ad08-187ddeee87df",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {},
+      "id": "baa98662-aef0-4b93-bf4a-5715a3f55763",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate PO record and prepare Airtable payload\nconst data = $input.first().json.body || $input.first().json;\n\nconst poNum = 'PO-' + new Date().getFullYear() + '-' + String(Date.now()).slice(-4);\nconst totalAmount = data.total_amount || (data.quantity_requested * (data.unit_cost || 0));\n\nconst poRecord = {\n  po_number: poNum,\n  vendor_name: data.vendor_name || 'TBD',\n  vendor_email: data.vendor_email || '',\n  department: data.department || '',\n  total_amount: totalAmount,\n  items_json: data.items_json || JSON.stringify([{ item_name: data.item_name, quantity: data.quantity_requested || data.approved_quantity, unit: data.unit || 'each', unit_price: data.unit_cost || 0 }]),\n  gl_account: data.gl_code || data.gl_account || '',\n  source: data.source || 'Manual',\n  requester: data.requester || 'System',\n  status: 'Pending Approval'\n};\n\nconst createBody = JSON.stringify({ records: [{ fields: poRecord }] });\n\nreturn [{ json: { ...poRecord, total_amount: totalAmount, create_body: createBody } }];"
+      },
+      "id": "21731f57-5984-4961-8160-fb1a08d2fdd8",
+      "name": "Code - Prepare PO Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.create_body }}",
+        "options": {}
+      },
+      "id": "a09af9a8-dfe5-4743-8f96-4ecc04dc5731",
+      "name": "Airtable - Create PO Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        224
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract PO data from Airtable response and merge with original context\nconst airtableResp = $input.first().json;\nconst record = airtableResp.records?.[0] || airtableResp;\nconst original = $('Code - Prepare PO Record').first().json;\n\nreturn [{ json: {\n  po_number: original.po_number,\n  vendor_name: original.vendor_name,\n  vendor_email: original.vendor_email,\n  department: original.department,\n  total_amount: original.total_amount,\n  items_json: original.items_json,\n  gl_account: original.gl_account,\n  source: original.source,\n  requester: original.requester,\n  airtable_record_id: record.id || record.records?.[0]?.id || ''\n} }];"
+      },
+      "id": "0a72f783-5d6c-4df2-9c35-6a5f3c12fc21",
+      "name": "Code - Extract PO Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "under500",
+              "leftValue": "={{ $json.total_amount }}",
+              "rightValue": 500,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fd12a2f3-3ecd-49b7-8e31-702f4195c231",
+      "name": "IF Under €500",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        896,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "under2000",
+              "leftValue": "={{ $json.total_amount }}",
+              "rightValue": 2000,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "687de55f-e8eb-4077-ba6c-c2bd01eeceb5",
+      "name": "IF Under €2000",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "under5000",
+              "leftValue": "={{ $json.total_amount }}",
+              "rightValue": 5000,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "42d3c38b-6b4e-45fc-a6a1-f853ef2231de",
+      "name": "IF Under €5000",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=✅ *Auto-Approved PO* — Under €500\n\nPO: {{ $json.po_number }}\nVendor: {{ $json.vendor_name }}\nTotal: €{{ $json.total_amount }}\nDepartment: {{ $json.department }}\nSource: {{ $json.source }}\n\nSending to vendor now.",
+        "otherOptions": {}
+      },
+      "id": "353f5f8c-b66c-4f52-88b1-bf7d5a2d8e61",
+      "name": "Slack - Auto Approved (< €500)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1120,
+        96
+      ],
+      "webhookId": "2ddd5b2e-542d-4a38-a6b4-d1182abf6a70",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "messageType": "block",
+        "blocksUi": "=[\n  {\n    \"type\": \"header\",\n    \"text\": {\"type\": \"plain_text\", \"text\": \"🔔 PO Approval Required — Dept Head (€500–€2,000)\"}\n  },\n  {\n    \"type\": \"section\",\n    \"fields\": [\n      {\"type\": \"mrkdwn\", \"text\": \"*PO:*\\n{{ $json.po_number }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Vendor:*\\n{{ $json.vendor_name }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Total:*\\n€{{ $json.total_amount }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Department:*\\n{{ $json.department }}\"}\n    ]\n  },\n  {\n    \"type\": \"section\",\n    \"text\": {\"type\": \"mrkdwn\", \"text\": \"@department-head — approve or reject below, or use the Command Center dashboard.\"}\n  },\n  {\n    \"type\": \"actions\",\n    \"block_id\": \"approval_actions\",\n    \"elements\": [\n      {\n        \"type\": \"button\",\n        \"action_id\": \"approve_po\",\n        \"style\": \"primary\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"✅ Approve\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Approve PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Approve *{{ $json.po_number }}* for *€{{ $json.total_amount }}*? This sends the PO to the vendor.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Approve\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      },\n      {\n        \"type\": \"button\",\n        \"action_id\": \"reject_po\",\n        \"style\": \"danger\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"❌ Reject\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Reject PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Reject *{{ $json.po_number }}*? Status → Cancelled.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Reject\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      }\n    ]\n  },\n  {\n    \"type\": \"context\",\n    \"elements\": [\n      {\"type\": \"mrkdwn\", \"text\": \"WF06 → WF16 | Dept Head (€500–€2,000) | Requester: {{ $json.requester }} | Source: {{ $json.source }}\"}\n    ]\n  }\n]",
+        "text": "=🔔 PO Approval Required: {{ $json.po_number }} — €{{ $json.total_amount }} — Dept Head (€500–€2,000)",
+        "otherOptions": {}
+      },
+      "id": "cf2e41a8-2ec4-42bf-a42c-3821dcddc032",
+      "name": "Slack - Dept Head (€500-€2K)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1344,
+        224
+      ],
+      "webhookId": "5bd75a7a-9375-4f2c-95d8-38079cc3fff8",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "messageType": "block",
+        "blocksUi": "=[\n  {\n    \"type\": \"header\",\n    \"text\": {\"type\": \"plain_text\", \"text\": \"⚠️ PO Approval Required — Controller (€2,000–€5,000)\"}\n  },\n  {\n    \"type\": \"section\",\n    \"fields\": [\n      {\"type\": \"mrkdwn\", \"text\": \"*PO:*\\n{{ $json.po_number }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Vendor:*\\n{{ $json.vendor_name }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Total:*\\n€{{ $json.total_amount }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Department:*\\n{{ $json.department }}\"}\n    ]\n  },\n  {\n    \"type\": \"section\",\n    \"text\": {\"type\": \"mrkdwn\", \"text\": \"@zoran — approve or reject below, or use the Command Center dashboard.\"}\n  },\n  {\n    \"type\": \"actions\",\n    \"block_id\": \"approval_actions\",\n    \"elements\": [\n      {\n        \"type\": \"button\",\n        \"action_id\": \"approve_po\",\n        \"style\": \"primary\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"✅ Approve\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Approve PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Approve *{{ $json.po_number }}* for *€{{ $json.total_amount }}*? This sends the PO to the vendor.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Approve\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      },\n      {\n        \"type\": \"button\",\n        \"action_id\": \"reject_po\",\n        \"style\": \"danger\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"❌ Reject\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Reject PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Reject *{{ $json.po_number }}*? Status → Cancelled.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Reject\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      }\n    ]\n  },\n  {\n    \"type\": \"context\",\n    \"elements\": [\n      {\"type\": \"mrkdwn\", \"text\": \"WF06 → WF16 | Controller (€2,000–€5,000) | Requester: {{ $json.requester }} | Source: {{ $json.source }}\"}\n    ]\n  }\n]",
+        "text": "=⚠️ PO Approval Required: {{ $json.po_number }} — €{{ $json.total_amount }} — Controller (€2,000–€5,000)",
+        "otherOptions": {}
+      },
+      "id": "58ff2dc1-75e9-4cb5-b43a-3ef98284ad73",
+      "name": "Slack - Controller (€2K-€5K)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1568,
+        336
+      ],
+      "webhookId": "9f946e03-057d-457b-8769-78de6cad39f8",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "messageType": "block",
+        "blocksUi": "=[\n  {\n    \"type\": \"header\",\n    \"text\": {\"type\": \"plain_text\", \"text\": \"🚨 PO Approval Required — Controller + GM (€5,000+)\"}\n  },\n  {\n    \"type\": \"section\",\n    \"fields\": [\n      {\"type\": \"mrkdwn\", \"text\": \"*PO:*\\n{{ $json.po_number }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Vendor:*\\n{{ $json.vendor_name }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Total:*\\n€{{ $json.total_amount }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Department:*\\n{{ $json.department }}\"}\n    ]\n  },\n  {\n    \"type\": \"section\",\n    \"text\": {\"type\": \"mrkdwn\", \"text\": \"@zoran @gm — approve or reject below, or use the Command Center dashboard.\"}\n  },\n  {\n    \"type\": \"actions\",\n    \"block_id\": \"approval_actions\",\n    \"elements\": [\n      {\n        \"type\": \"button\",\n        \"action_id\": \"approve_po\",\n        \"style\": \"primary\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"✅ Approve\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Approve PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Approve *{{ $json.po_number }}* for *€{{ $json.total_amount }}*? This sends the PO to the vendor.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Approve\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      },\n      {\n        \"type\": \"button\",\n        \"action_id\": \"reject_po\",\n        \"style\": \"danger\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"❌ Reject\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Reject PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Reject *{{ $json.po_number }}*? Status → Cancelled.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Reject\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      }\n    ]\n  },\n  {\n    \"type\": \"context\",\n    \"elements\": [\n      {\"type\": \"mrkdwn\", \"text\": \"WF06 → WF16 | Controller + GM (€5,000+) | Requester: {{ $json.requester }} | Source: {{ $json.source }}\"}\n    ]\n  }\n]",
+        "text": "=🚨 PO Approval Required: {{ $json.po_number }} — €{{ $json.total_amount }} — Controller + GM (€5,000+)",
+        "otherOptions": {}
+      },
+      "id": "cba94345-f818-4aae-ab3a-fa3811e4561c",
+      "name": "Slack - Controller + GM (€5K+)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1568,
+        576
+      ],
+      "webhookId": "56ff3b73-c543-405d-b274-91a0c20ba0c5",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 500, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are a hotel procurement AI. Generate a professional purchase order email to send to the vendor. Include: PO number, hotel name (Hotel Jadran), line items with quantities and unit prices, total, and payment terms. Sign as Procurement Department. Respond ONLY in valid JSON: {\"subject\": \"...\", \"body\": \"...\"}. No markdown, no backticks.' }, { role: 'user', content: 'Generate PO email:\\nPO: ' + $('Code - Extract PO Data').first().json.po_number + '\\nVendor: ' + $('Code - Extract PO Data').first().json.vendor_name + '\\nLine Items: ' + $('Code - Extract PO Data').first().json.items_json + '\\nTotal: €' + $('Code - Extract PO Data').first().json.total_amount + '\\nDepartment: ' + $('Code - Extract PO Data').first().json.department }] }) }}",
+        "options": {}
+      },
+      "id": "8531106d-3a6d-470e-b9e3-48a01097afd0",
+      "name": "AI - Draft PO Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        96
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI email draft and generate professional HTML PO document\nconst response = $input.first().json;\nconst content = response.choices[0].message.content;\nconst parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\nconst poData = $('Code - Extract PO Data').first().json;\n\n// Parse line items\nlet lineItems = [];\ntry {\n  lineItems = JSON.parse(poData.items_json || '[]');\n} catch(e) {\n  lineItems = [{ item_name: 'Items as specified', quantity: 1, unit: 'lot', unit_price: poData.total_amount }];\n}\n\n// Build line items HTML rows\nconst lineItemsHtml = lineItems.map((item, i) => {\n  const subtotal = (item.quantity * item.unit_price).toFixed(2);\n  return '<tr>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;\">' + (i+1) + '</td>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;\">' + item.item_name + '</td>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;\">' + item.quantity + '</td>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;\">' + (item.unit || 'each') + '</td>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;\">€' + Number(item.unit_price).toFixed(2) + '</td>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;\">€' + subtotal + '</td>' +\n    '</tr>';\n}).join('');\n\nconst today = new Date().toISOString().split('T')[0];\n\nconst htmlDocument = '<!DOCTYPE html>' +\n'<html><head><meta charset=\"utf-8\"></head><body style=\"font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;margin:0;padding:0;\">' +\n\n// Header bar\n'<div style=\"background:#1e3a5f;padding:24px 40px;color:white;\">' +\n  '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>' +\n    '<td>' +\n      '<h1 style=\"margin:0;font-size:28px;font-weight:700;letter-spacing:1px;\">HOTEL JADRAN</h1>' +\n      '<p style=\"margin:4px 0 0;font-size:13px;color:#a0c4e8;\">Obala bb, Budva, Montenegro</p>' +\n      '<p style=\"margin:2px 0 0;font-size:13px;color:#a0c4e8;\">procurement@hoteljadran.me | +382 33 123 456</p>' +\n    '</td>' +\n    '<td style=\"text-align:right;\">' +\n      '<p style=\"margin:0;font-size:36px;font-weight:700;color:white;letter-spacing:2px;\">PURCHASE ORDER</p>' +\n    '</td>' +\n  '</tr></table>' +\n'</div>' +\n\n// PO Info + Vendor Info\n'<div style=\"padding:24px 40px;\">' +\n  '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>' +\n    '<td style=\"vertical-align:top;width:50%;\">' +\n      '<div style=\"background:#f0f4f8;border-radius:6px;padding:16px;margin-right:12px;\">' +\n        '<p style=\"margin:0 0 8px;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;\">Purchase Order Details</p>' +\n        '<table cellpadding=\"2\" cellspacing=\"0\" style=\"font-size:14px;\">' +\n          '<tr><td style=\"color:#6b7280;padding-right:12px;\">PO Number:</td><td style=\"font-weight:600;\">' + poData.po_number + '</td></tr>' +\n          '<tr><td style=\"color:#6b7280;padding-right:12px;\">Date:</td><td>' + today + '</td></tr>' +\n          '<tr><td style=\"color:#6b7280;padding-right:12px;\">Department:</td><td>' + (poData.department || 'General') + '</td></tr>' +\n          '<tr><td style=\"color:#6b7280;padding-right:12px;\">GL Account:</td><td>' + (poData.gl_account || 'N/A') + '</td></tr>' +\n          '<tr><td style=\"color:#6b7280;padding-right:12px;\">Requested by:</td><td>' + (poData.requester || 'System') + '</td></tr>' +\n        '</table>' +\n      '</div>' +\n    '</td>' +\n    '<td style=\"vertical-align:top;width:50%;\">' +\n      '<div style=\"background:#f0f4f8;border-radius:6px;padding:16px;margin-left:12px;\">' +\n        '<p style=\"margin:0 0 8px;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;\">Vendor</p>' +\n        '<p style=\"margin:0;font-size:16px;font-weight:600;\">' + poData.vendor_name + '</p>' +\n        '<p style=\"margin:4px 0 0;font-size:14px;color:#4b5563;\">' + (poData.vendor_email || '') + '</p>' +\n      '</div>' +\n    '</td>' +\n  '</tr></table>' +\n'</div>' +\n\n// Line Items Table\n'<div style=\"padding:0 40px 24px;\">' +\n  '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;font-size:14px;\">' +\n    '<thead>' +\n      '<tr style=\"background:#1e3a5f;color:white;\">' +\n        '<th style=\"padding:10px 12px;text-align:left;font-weight:600;\">#</th>' +\n        '<th style=\"padding:10px 12px;text-align:left;font-weight:600;\">Item Description</th>' +\n        '<th style=\"padding:10px 12px;text-align:center;font-weight:600;\">Qty</th>' +\n        '<th style=\"padding:10px 12px;text-align:center;font-weight:600;\">Unit</th>' +\n        '<th style=\"padding:10px 12px;text-align:right;font-weight:600;\">Unit Price</th>' +\n        '<th style=\"padding:10px 12px;text-align:right;font-weight:600;\">Subtotal</th>' +\n      '</tr>' +\n    '</thead>' +\n    '<tbody>' + lineItemsHtml + '</tbody>' +\n    '<tfoot>' +\n      '<tr style=\"background:#f9fafb;\">' +\n        '<td colspan=\"5\" style=\"padding:12px;text-align:right;font-weight:700;font-size:16px;\">TOTAL:</td>' +\n        '<td style=\"padding:12px;text-align:right;font-weight:700;font-size:16px;color:#1e3a5f;\">€' + Number(poData.total_amount).toFixed(2) + '</td>' +\n      '</tr>' +\n    '</tfoot>' +\n  '</table>' +\n'</div>' +\n\n// Terms & Signature\n'<div style=\"padding:0 40px 24px;\">' +\n  '<div style=\"border-top:2px solid #e5e7eb;padding-top:16px;\">' +\n    '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>' +\n      '<td style=\"vertical-align:top;width:50%;padding-right:20px;\">' +\n        '<p style=\"margin:0 0 6px;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;\">Terms & Conditions</p>' +\n        '<p style=\"margin:0;font-size:13px;color:#4b5563;line-height:1.5;\">' +\n          '1. Payment terms: Net 30 from delivery date.<br>' +\n          '2. Delivery to: Hotel Jadran, Obala bb, Budva.<br>' +\n          '3. Invoice must reference this PO number.<br>' +\n          '4. Prices are in EUR and include all applicable charges.' +\n        '</p>' +\n      '</td>' +\n      '<td style=\"vertical-align:top;width:50%;text-align:right;\">' +\n        '<p style=\"margin:0 0 6px;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;\">Authorized by</p>' +\n        '<div style=\"border-bottom:1px solid #1a1a1a;width:200px;display:inline-block;margin-bottom:6px;\">&nbsp;</div>' +\n        '<p style=\"margin:0;font-size:13px;color:#4b5563;\">Procurement Department<br>Hotel Jadran</p>' +\n        '<p style=\"margin:8px 0 0;font-size:12px;color:#9ca3af;\">Date: ' + today + '</p>' +\n      '</td>' +\n    '</tr></table>' +\n  '</div>' +\n'</div>' +\n\n// Footer\n'<div style=\"background:#f0f4f8;padding:12px 40px;text-align:center;font-size:11px;color:#9ca3af;\">' +\n  'This is an automatically generated purchase order from Hotel Jadran Procurement System. ' +\n  'For questions, contact procurement@hoteljadran.me' +\n'</div>' +\n\n'</body></html>';\n\nreturn [{ json: {\n  ...poData,\n  email_subject: 'Purchase Order ' + poData.po_number + ' — Hotel Jadran',\n  email_body: htmlDocument\n} }];"
+      },
+      "id": "630b43be-49cb-42be-b6b4-26c2f423f0da",
+      "name": "Code - Parse Email Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n1815764@gmail.com",
+        "toEmail": "n1815764@gmail.com",
+        "subject": "={{ $json.email_subject }}",
+        "html": "={{ $json.email_body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "63407de0-bc8c-4d0d-af07-3b8dd94e5157",
+      "name": "Send PO Email to Vendor",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1792,
+        96
+      ],
+      "webhookId": "af06fe2e-8cb2-4539-b2aa-3032e531b2a4",
+      "credentials": {
+        "smtp": {
+          "id": "gMeJAzEnruR2Zuau",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Airtable update and audit payloads\nconst data = $('Code - Extract PO Data').first().json;\n\nconst updateBody = JSON.stringify({ fields: { status: 'Sent to Vendor' } });\nconst auditBody = JSON.stringify({ records: [{ fields: { reference_id: data.po_number, event_type: 'Approved', actor: 'System', details: 'PO sent to ' + data.vendor_name + ' for \\u20ac' + data.total_amount, amount: data.total_amount } }] });\n\nreturn [{ json: { airtable_record_id: data.airtable_record_id, update_body: updateBody, audit_body: auditBody } }];"
+      },
+      "id": "e570dcd7-77a3-4746-87f8-bc677d3b7289",
+      "name": "Code - Prepare Final Payloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log/{{ $json.airtable_record_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.update_body }}",
+        "options": {}
+      },
+      "id": "940e13cb-d9d8-42a6-9ef5-c7de7e16b6cc",
+      "name": "Airtable - Update PO Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        96
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Code - Prepare Final Payloads').first().json.audit_body }}",
+        "options": {}
+      },
+      "id": "5fa6b7fb-190c-4a25-83e1-36d97aea06cc",
+      "name": "Airtable - Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2464,
+        96
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "po-creation",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "ccdefa6c-017d-4921-be28-de9cb482325e",
+      "name": "Webhook - PO Creation",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        448
+      ],
+      "webhookId": "2eb6b9ac-cdf2-4d3f-a357-8c89d10a6206"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ fields: { reference_id: $json.po_number, event_type: 'PO_CREATED', actor: 'System', details: 'PO kreiran i poslan na odobrenje. Tier: ' + ($json.total_amount < 2000 ? 'Dept Head' : ($json.total_amount < 5000 ? 'Controller' : 'Controller + GM')) + '. Očekuje odobrenje preko Slack buttons ili Command Center.', amount: $json.total_amount } }] }) }}",
+        "options": {}
+      },
+      "id": "3742999e-80eb-424d-aaf5-abf298b7abdc",
+      "name": "Airtable - Audit (Pending Approval)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1824,
+        800
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare PO Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare PO Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare PO Record": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Create PO Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Create PO Record": {
+      "main": [
+        [
+          {
+            "node": "Code - Extract PO Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extract PO Data": {
+      "main": [
+        [
+          {
+            "node": "IF Under €500",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Under €500": {
+      "main": [
+        [
+          {
+            "node": "Slack - Auto Approved (< €500)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Under €2000",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Under €2000": {
+      "main": [
+        [
+          {
+            "node": "Slack - Dept Head (€500-€2K)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Under €5000",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Under €5000": {
+      "main": [
+        [
+          {
+            "node": "Slack - Controller (€2K-€5K)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack - Controller + GM (€5K+)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Auto Approved (< €500)": {
+      "main": [
+        [
+          {
+            "node": "AI - Draft PO Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Draft PO Email": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Email Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Email Draft": {
+      "main": [
+        [
+          {
+            "node": "Send PO Email to Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send PO Email to Vendor": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Final Payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Final Payloads": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Update PO Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Update PO Status": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - PO Creation": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare PO Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Dept Head (€500-€2K)": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit (Pending Approval)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Controller (€2K-€5K)": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit (Pending Approval)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Controller + GM (€5K+)": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit (Pending Approval)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {
+    "When clicking \"Test workflow\"": [
+      {
+        "json": {
+          "vendor_name": "Sysco Foodservice",
+          "vendor_email": "orders@sysco-test.com",
+          "department": "Kitchen",
+          "total_amount": 350,
+          "item_name": "Chicken Breast",
+          "quantity_requested": 50,
+          "unit": "kg",
+          "unit_cost": 7,
+          "gl_code": "4010",
+          "source": "Manual",
+          "requester": "Vasilije",
+          "items_json": "[{\"item_name\": \"Chicken Breast\", \"quantity\": 50, \"unit\": \"kg\", \"unit_price\": 7.00}]"
+        }
+      }
+    ]
+  },
+  "versionId": "cb70493d-3715-4938-9bec-eb880fcddc4f",
+  "activeVersionId": "ace212b1-ba3d-43e3-8034-b3fdd9902509",
+  "versionCounter": 4,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-04-22T05:16:45.693Z",
+      "createdAt": "2026-04-22T05:16:45.693Z",
+      "role": "workflow:editor",
+      "workflowId": "bOqIhl8Law9FDgTE",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-17T23:07:03.295Z",
+      "createdAt": "2026-04-17T23:07:03.295Z",
+      "role": "workflow:owner",
+      "workflowId": "bOqIhl8Law9FDgTE",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-04-19T02:53:59.000Z",
+    "createdAt": "2026-04-17T23:07:03.296Z",
+    "versionId": "ace212b1-ba3d-43e3-8034-b3fdd9902509",
+    "workflowId": "bOqIhl8Law9FDgTE",
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "passthrough"
+        },
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          0,
+          224
+        ],
+        "id": "035bfebc-7643-4b02-ad08-187ddeee87df",
+        "name": "When Executed by Another Workflow"
+      },
+      {
+        "parameters": {},
+        "id": "baa98662-aef0-4b93-bf4a-5715a3f55763",
+        "name": "When clicking \"Test workflow\"",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Generate PO record and prepare Airtable payload\nconst data = $input.first().json.body || $input.first().json;\n\nconst poNum = 'PO-' + new Date().getFullYear() + '-' + String(Date.now()).slice(-4);\nconst totalAmount = data.total_amount || (data.quantity_requested * (data.unit_cost || 0));\n\nconst poRecord = {\n  po_number: poNum,\n  vendor_name: data.vendor_name || 'TBD',\n  vendor_email: data.vendor_email || '',\n  department: data.department || '',\n  total_amount: totalAmount,\n  items_json: data.items_json || JSON.stringify([{ item_name: data.item_name, quantity: data.quantity_requested || data.approved_quantity, unit: data.unit || 'each', unit_price: data.unit_cost || 0 }]),\n  gl_account: data.gl_code || data.gl_account || '',\n  source: data.source || 'Manual',\n  requester: data.requester || 'System',\n  status: 'Pending Approval'\n};\n\nconst createBody = JSON.stringify({ records: [{ fields: poRecord }] });\n\nreturn [{ json: { ...poRecord, total_amount: totalAmount, create_body: createBody } }];"
+        },
+        "id": "21731f57-5984-4961-8160-fb1a08d2fdd8",
+        "name": "Code - Prepare PO Record",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          224,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.create_body }}",
+          "options": {}
+        },
+        "id": "a09af9a8-dfe5-4743-8f96-4ecc04dc5731",
+        "name": "Airtable - Create PO Record",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          448,
+          224
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Extract PO data from Airtable response and merge with original context\nconst airtableResp = $input.first().json;\nconst record = airtableResp.records?.[0] || airtableResp;\nconst original = $('Code - Prepare PO Record').first().json;\n\nreturn [{ json: {\n  po_number: original.po_number,\n  vendor_name: original.vendor_name,\n  vendor_email: original.vendor_email,\n  department: original.department,\n  total_amount: original.total_amount,\n  items_json: original.items_json,\n  gl_account: original.gl_account,\n  source: original.source,\n  requester: original.requester,\n  airtable_record_id: record.id || record.records?.[0]?.id || ''\n} }];"
+        },
+        "id": "0a72f783-5d6c-4df2-9c35-6a5f3c12fc21",
+        "name": "Code - Extract PO Data",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          672,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "under500",
+                "leftValue": "={{ $json.total_amount }}",
+                "rightValue": 500,
+                "operator": {
+                  "type": "number",
+                  "operation": "lt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "fd12a2f3-3ecd-49b7-8e31-702f4195c231",
+        "name": "IF Under €500",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          896,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "under2000",
+                "leftValue": "={{ $json.total_amount }}",
+                "rightValue": 2000,
+                "operator": {
+                  "type": "number",
+                  "operation": "lt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "687de55f-e8eb-4077-ba6c-c2bd01eeceb5",
+        "name": "IF Under €2000",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          336
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "under5000",
+                "leftValue": "={{ $json.total_amount }}",
+                "rightValue": 5000,
+                "operator": {
+                  "type": "number",
+                  "operation": "lt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "42d3c38b-6b4e-45fc-a6a1-f853ef2231de",
+        "name": "IF Under €5000",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1344,
+          464
+        ]
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=✅ *Auto-Approved PO* — Under €500\n\nPO: {{ $json.po_number }}\nVendor: {{ $json.vendor_name }}\nTotal: €{{ $json.total_amount }}\nDepartment: {{ $json.department }}\nSource: {{ $json.source }}\n\nSending to vendor now.",
+          "otherOptions": {}
+        },
+        "id": "353f5f8c-b66c-4f52-88b1-bf7d5a2d8e61",
+        "name": "Slack - Auto Approved (< €500)",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          1120,
+          96
+        ],
+        "webhookId": "2ddd5b2e-542d-4a38-a6b4-d1182abf6a70",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "messageType": "block",
+          "blocksUi": "=[\n  {\n    \"type\": \"header\",\n    \"text\": {\"type\": \"plain_text\", \"text\": \"🔔 PO Approval Required — Dept Head (€500–€2,000)\"}\n  },\n  {\n    \"type\": \"section\",\n    \"fields\": [\n      {\"type\": \"mrkdwn\", \"text\": \"*PO:*\\n{{ $json.po_number }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Vendor:*\\n{{ $json.vendor_name }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Total:*\\n€{{ $json.total_amount }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Department:*\\n{{ $json.department }}\"}\n    ]\n  },\n  {\n    \"type\": \"section\",\n    \"text\": {\"type\": \"mrkdwn\", \"text\": \"@department-head — approve or reject below, or use the Command Center dashboard.\"}\n  },\n  {\n    \"type\": \"actions\",\n    \"block_id\": \"approval_actions\",\n    \"elements\": [\n      {\n        \"type\": \"button\",\n        \"action_id\": \"approve_po\",\n        \"style\": \"primary\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"✅ Approve\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Approve PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Approve *{{ $json.po_number }}* for *€{{ $json.total_amount }}*? This sends the PO to the vendor.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Approve\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      },\n      {\n        \"type\": \"button\",\n        \"action_id\": \"reject_po\",\n        \"style\": \"danger\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"❌ Reject\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Reject PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Reject *{{ $json.po_number }}*? Status → Cancelled.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Reject\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      }\n    ]\n  },\n  {\n    \"type\": \"context\",\n    \"elements\": [\n      {\"type\": \"mrkdwn\", \"text\": \"WF06 → WF16 | Dept Head (€500–€2,000) | Requester: {{ $json.requester }} | Source: {{ $json.source }}\"}\n    ]\n  }\n]",
+          "text": "=🔔 PO Approval Required: {{ $json.po_number }} — €{{ $json.total_amount }} — Dept Head (€500–€2,000)",
+          "otherOptions": {}
+        },
+        "id": "cf2e41a8-2ec4-42bf-a42c-3821dcddc032",
+        "name": "Slack - Dept Head (€500-€2K)",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          1344,
+          224
+        ],
+        "webhookId": "5bd75a7a-9375-4f2c-95d8-38079cc3fff8",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "messageType": "block",
+          "blocksUi": "=[\n  {\n    \"type\": \"header\",\n    \"text\": {\"type\": \"plain_text\", \"text\": \"⚠️ PO Approval Required — Controller (€2,000–€5,000)\"}\n  },\n  {\n    \"type\": \"section\",\n    \"fields\": [\n      {\"type\": \"mrkdwn\", \"text\": \"*PO:*\\n{{ $json.po_number }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Vendor:*\\n{{ $json.vendor_name }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Total:*\\n€{{ $json.total_amount }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Department:*\\n{{ $json.department }}\"}\n    ]\n  },\n  {\n    \"type\": \"section\",\n    \"text\": {\"type\": \"mrkdwn\", \"text\": \"@zoran — approve or reject below, or use the Command Center dashboard.\"}\n  },\n  {\n    \"type\": \"actions\",\n    \"block_id\": \"approval_actions\",\n    \"elements\": [\n      {\n        \"type\": \"button\",\n        \"action_id\": \"approve_po\",\n        \"style\": \"primary\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"✅ Approve\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Approve PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Approve *{{ $json.po_number }}* for *€{{ $json.total_amount }}*? This sends the PO to the vendor.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Approve\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      },\n      {\n        \"type\": \"button\",\n        \"action_id\": \"reject_po\",\n        \"style\": \"danger\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"❌ Reject\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Reject PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Reject *{{ $json.po_number }}*? Status → Cancelled.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Reject\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      }\n    ]\n  },\n  {\n    \"type\": \"context\",\n    \"elements\": [\n      {\"type\": \"mrkdwn\", \"text\": \"WF06 → WF16 | Controller (€2,000–€5,000) | Requester: {{ $json.requester }} | Source: {{ $json.source }}\"}\n    ]\n  }\n]",
+          "text": "=⚠️ PO Approval Required: {{ $json.po_number }} — €{{ $json.total_amount }} — Controller (€2,000–€5,000)",
+          "otherOptions": {}
+        },
+        "id": "58ff2dc1-75e9-4cb5-b43a-3ef98284ad73",
+        "name": "Slack - Controller (€2K-€5K)",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          1568,
+          336
+        ],
+        "webhookId": "9f946e03-057d-457b-8769-78de6cad39f8",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "messageType": "block",
+          "blocksUi": "=[\n  {\n    \"type\": \"header\",\n    \"text\": {\"type\": \"plain_text\", \"text\": \"🚨 PO Approval Required — Controller + GM (€5,000+)\"}\n  },\n  {\n    \"type\": \"section\",\n    \"fields\": [\n      {\"type\": \"mrkdwn\", \"text\": \"*PO:*\\n{{ $json.po_number }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Vendor:*\\n{{ $json.vendor_name }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Total:*\\n€{{ $json.total_amount }}\"},\n      {\"type\": \"mrkdwn\", \"text\": \"*Department:*\\n{{ $json.department }}\"}\n    ]\n  },\n  {\n    \"type\": \"section\",\n    \"text\": {\"type\": \"mrkdwn\", \"text\": \"@zoran @gm — approve or reject below, or use the Command Center dashboard.\"}\n  },\n  {\n    \"type\": \"actions\",\n    \"block_id\": \"approval_actions\",\n    \"elements\": [\n      {\n        \"type\": \"button\",\n        \"action_id\": \"approve_po\",\n        \"style\": \"primary\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"✅ Approve\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Approve PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Approve *{{ $json.po_number }}* for *€{{ $json.total_amount }}*? This sends the PO to the vendor.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Approve\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      },\n      {\n        \"type\": \"button\",\n        \"action_id\": \"reject_po\",\n        \"style\": \"danger\",\n        \"text\": {\"type\": \"plain_text\", \"text\": \"❌ Reject\"},\n        \"value\": \"{{ $json.po_number }}\",\n        \"confirm\": {\n          \"title\": {\"type\": \"plain_text\", \"text\": \"Reject PO?\"},\n          \"text\": {\"type\": \"mrkdwn\", \"text\": \"Reject *{{ $json.po_number }}*? Status → Cancelled.\"},\n          \"confirm\": {\"type\": \"plain_text\", \"text\": \"Reject\"},\n          \"deny\": {\"type\": \"plain_text\", \"text\": \"Cancel\"}\n        }\n      }\n    ]\n  },\n  {\n    \"type\": \"context\",\n    \"elements\": [\n      {\"type\": \"mrkdwn\", \"text\": \"WF06 → WF16 | Controller + GM (€5,000+) | Requester: {{ $json.requester }} | Source: {{ $json.source }}\"}\n    ]\n  }\n]",
+          "text": "=🚨 PO Approval Required: {{ $json.po_number }} — €{{ $json.total_amount }} — Controller + GM (€5,000+)",
+          "otherOptions": {}
+        },
+        "id": "cba94345-f818-4aae-ab3a-fa3811e4561c",
+        "name": "Slack - Controller + GM (€5K+)",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          1568,
+          576
+        ],
+        "webhookId": "56ff3b73-c543-405d-b274-91a0c20ba0c5",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.moonshot.ai/v1/chat/completions",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.MOONSHOT_API_KEY }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 500, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are a hotel procurement AI. Generate a professional purchase order email to send to the vendor. Include: PO number, hotel name (Hotel Jadran), line items with quantities and unit prices, total, and payment terms. Sign as Procurement Department. Respond ONLY in valid JSON: {\"subject\": \"...\", \"body\": \"...\"}. No markdown, no backticks.' }, { role: 'user', content: 'Generate PO email:\\nPO: ' + $('Code - Extract PO Data').first().json.po_number + '\\nVendor: ' + $('Code - Extract PO Data').first().json.vendor_name + '\\nLine Items: ' + $('Code - Extract PO Data').first().json.items_json + '\\nTotal: €' + $('Code - Extract PO Data').first().json.total_amount + '\\nDepartment: ' + $('Code - Extract PO Data').first().json.department }] }) }}",
+          "options": {}
+        },
+        "id": "8531106d-3a6d-470e-b9e3-48a01097afd0",
+        "name": "AI - Draft PO Email",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1344,
+          96
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "ircrqFbA5nzR0ppe",
+            "name": "Header Auth account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Parse AI email draft and generate professional HTML PO document\nconst response = $input.first().json;\nconst content = response.choices[0].message.content;\nconst parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\nconst poData = $('Code - Extract PO Data').first().json;\n\n// Parse line items\nlet lineItems = [];\ntry {\n  lineItems = JSON.parse(poData.items_json || '[]');\n} catch(e) {\n  lineItems = [{ item_name: 'Items as specified', quantity: 1, unit: 'lot', unit_price: poData.total_amount }];\n}\n\n// Build line items HTML rows\nconst lineItemsHtml = lineItems.map((item, i) => {\n  const subtotal = (item.quantity * item.unit_price).toFixed(2);\n  return '<tr>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;\">' + (i+1) + '</td>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;\">' + item.item_name + '</td>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;\">' + item.quantity + '</td>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;\">' + (item.unit || 'each') + '</td>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;\">€' + Number(item.unit_price).toFixed(2) + '</td>' +\n    '<td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right;\">€' + subtotal + '</td>' +\n    '</tr>';\n}).join('');\n\nconst today = new Date().toISOString().split('T')[0];\n\nconst htmlDocument = '<!DOCTYPE html>' +\n'<html><head><meta charset=\"utf-8\"></head><body style=\"font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;margin:0;padding:0;\">' +\n\n// Header bar\n'<div style=\"background:#1e3a5f;padding:24px 40px;color:white;\">' +\n  '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>' +\n    '<td>' +\n      '<h1 style=\"margin:0;font-size:28px;font-weight:700;letter-spacing:1px;\">HOTEL JADRAN</h1>' +\n      '<p style=\"margin:4px 0 0;font-size:13px;color:#a0c4e8;\">Obala bb, Budva, Montenegro</p>' +\n      '<p style=\"margin:2px 0 0;font-size:13px;color:#a0c4e8;\">procurement@hoteljadran.me | +382 33 123 456</p>' +\n    '</td>' +\n    '<td style=\"text-align:right;\">' +\n      '<p style=\"margin:0;font-size:36px;font-weight:700;color:white;letter-spacing:2px;\">PURCHASE ORDER</p>' +\n    '</td>' +\n  '</tr></table>' +\n'</div>' +\n\n// PO Info + Vendor Info\n'<div style=\"padding:24px 40px;\">' +\n  '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>' +\n    '<td style=\"vertical-align:top;width:50%;\">' +\n      '<div style=\"background:#f0f4f8;border-radius:6px;padding:16px;margin-right:12px;\">' +\n        '<p style=\"margin:0 0 8px;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;\">Purchase Order Details</p>' +\n        '<table cellpadding=\"2\" cellspacing=\"0\" style=\"font-size:14px;\">' +\n          '<tr><td style=\"color:#6b7280;padding-right:12px;\">PO Number:</td><td style=\"font-weight:600;\">' + poData.po_number + '</td></tr>' +\n          '<tr><td style=\"color:#6b7280;padding-right:12px;\">Date:</td><td>' + today + '</td></tr>' +\n          '<tr><td style=\"color:#6b7280;padding-right:12px;\">Department:</td><td>' + (poData.department || 'General') + '</td></tr>' +\n          '<tr><td style=\"color:#6b7280;padding-right:12px;\">GL Account:</td><td>' + (poData.gl_account || 'N/A') + '</td></tr>' +\n          '<tr><td style=\"color:#6b7280;padding-right:12px;\">Requested by:</td><td>' + (poData.requester || 'System') + '</td></tr>' +\n        '</table>' +\n      '</div>' +\n    '</td>' +\n    '<td style=\"vertical-align:top;width:50%;\">' +\n      '<div style=\"background:#f0f4f8;border-radius:6px;padding:16px;margin-left:12px;\">' +\n        '<p style=\"margin:0 0 8px;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;\">Vendor</p>' +\n        '<p style=\"margin:0;font-size:16px;font-weight:600;\">' + poData.vendor_name + '</p>' +\n        '<p style=\"margin:4px 0 0;font-size:14px;color:#4b5563;\">' + (poData.vendor_email || '') + '</p>' +\n      '</div>' +\n    '</td>' +\n  '</tr></table>' +\n'</div>' +\n\n// Line Items Table\n'<div style=\"padding:0 40px 24px;\">' +\n  '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;font-size:14px;\">' +\n    '<thead>' +\n      '<tr style=\"background:#1e3a5f;color:white;\">' +\n        '<th style=\"padding:10px 12px;text-align:left;font-weight:600;\">#</th>' +\n        '<th style=\"padding:10px 12px;text-align:left;font-weight:600;\">Item Description</th>' +\n        '<th style=\"padding:10px 12px;text-align:center;font-weight:600;\">Qty</th>' +\n        '<th style=\"padding:10px 12px;text-align:center;font-weight:600;\">Unit</th>' +\n        '<th style=\"padding:10px 12px;text-align:right;font-weight:600;\">Unit Price</th>' +\n        '<th style=\"padding:10px 12px;text-align:right;font-weight:600;\">Subtotal</th>' +\n      '</tr>' +\n    '</thead>' +\n    '<tbody>' + lineItemsHtml + '</tbody>' +\n    '<tfoot>' +\n      '<tr style=\"background:#f9fafb;\">' +\n        '<td colspan=\"5\" style=\"padding:12px;text-align:right;font-weight:700;font-size:16px;\">TOTAL:</td>' +\n        '<td style=\"padding:12px;text-align:right;font-weight:700;font-size:16px;color:#1e3a5f;\">€' + Number(poData.total_amount).toFixed(2) + '</td>' +\n      '</tr>' +\n    '</tfoot>' +\n  '</table>' +\n'</div>' +\n\n// Terms & Signature\n'<div style=\"padding:0 40px 24px;\">' +\n  '<div style=\"border-top:2px solid #e5e7eb;padding-top:16px;\">' +\n    '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>' +\n      '<td style=\"vertical-align:top;width:50%;padding-right:20px;\">' +\n        '<p style=\"margin:0 0 6px;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;\">Terms & Conditions</p>' +\n        '<p style=\"margin:0;font-size:13px;color:#4b5563;line-height:1.5;\">' +\n          '1. Payment terms: Net 30 from delivery date.<br>' +\n          '2. Delivery to: Hotel Jadran, Obala bb, Budva.<br>' +\n          '3. Invoice must reference this PO number.<br>' +\n          '4. Prices are in EUR and include all applicable charges.' +\n        '</p>' +\n      '</td>' +\n      '<td style=\"vertical-align:top;width:50%;text-align:right;\">' +\n        '<p style=\"margin:0 0 6px;font-size:11px;text-transform:uppercase;color:#6b7280;font-weight:600;\">Authorized by</p>' +\n        '<div style=\"border-bottom:1px solid #1a1a1a;width:200px;display:inline-block;margin-bottom:6px;\">&nbsp;</div>' +\n        '<p style=\"margin:0;font-size:13px;color:#4b5563;\">Procurement Department<br>Hotel Jadran</p>' +\n        '<p style=\"margin:8px 0 0;font-size:12px;color:#9ca3af;\">Date: ' + today + '</p>' +\n      '</td>' +\n    '</tr></table>' +\n  '</div>' +\n'</div>' +\n\n// Footer\n'<div style=\"background:#f0f4f8;padding:12px 40px;text-align:center;font-size:11px;color:#9ca3af;\">' +\n  'This is an automatically generated purchase order from Hotel Jadran Procurement System. ' +\n  'For questions, contact procurement@hoteljadran.me' +\n'</div>' +\n\n'</body></html>';\n\nreturn [{ json: {\n  ...poData,\n  email_subject: 'Purchase Order ' + poData.po_number + ' — Hotel Jadran',\n  email_body: htmlDocument\n} }];"
+        },
+        "id": "630b43be-49cb-42be-b6b4-26c2f423f0da",
+        "name": "Code - Parse Email Draft",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1568,
+          96
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "n1815764@gmail.com",
+          "toEmail": "n1815764@gmail.com",
+          "subject": "={{ $json.email_subject }}",
+          "html": "={{ $json.email_body }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "id": "63407de0-bc8c-4d0d-af07-3b8dd94e5157",
+        "name": "Send PO Email to Vendor",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          1792,
+          96
+        ],
+        "webhookId": "af06fe2e-8cb2-4539-b2aa-3032e531b2a4",
+        "credentials": {
+          "smtp": {
+            "id": "gMeJAzEnruR2Zuau",
+            "name": "SMTP account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Prepare Airtable update and audit payloads\nconst data = $('Code - Extract PO Data').first().json;\n\nconst updateBody = JSON.stringify({ fields: { status: 'Sent to Vendor' } });\nconst auditBody = JSON.stringify({ records: [{ fields: { reference_id: data.po_number, event_type: 'Approved', actor: 'System', details: 'PO sent to ' + data.vendor_name + ' for \\u20ac' + data.total_amount, amount: data.total_amount } }] });\n\nreturn [{ json: { airtable_record_id: data.airtable_record_id, update_body: updateBody, audit_body: auditBody } }];"
+        },
+        "id": "e570dcd7-77a3-4746-87f8-bc677d3b7289",
+        "name": "Code - Prepare Final Payloads",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2016,
+          96
+        ]
+      },
+      {
+        "parameters": {
+          "method": "PATCH",
+          "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log/{{ $json.airtable_record_id }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.update_body }}",
+          "options": {}
+        },
+        "id": "940e13cb-d9d8-42a6-9ef5-c7de7e16b6cc",
+        "name": "Airtable - Update PO Status",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2240,
+          96
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $('Code - Prepare Final Payloads').first().json.audit_body }}",
+          "options": {}
+        },
+        "id": "5fa6b7fb-190c-4a25-83e1-36d97aea06cc",
+        "name": "Airtable - Audit Trail",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2464,
+          96
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "po-creation",
+          "responseMode": "lastNode",
+          "options": {}
+        },
+        "id": "ccdefa6c-017d-4921-be28-de9cb482325e",
+        "name": "Webhook - PO Creation",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          448
+        ],
+        "webhookId": "2eb6b9ac-cdf2-4d3f-a357-8c89d10a6206"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ records: [{ fields: { reference_id: $json.po_number, event_type: 'PO_CREATED', actor: 'System', details: 'PO kreiran i poslan na odobrenje. Tier: ' + ($json.total_amount < 2000 ? 'Dept Head' : ($json.total_amount < 5000 ? 'Controller' : 'Controller + GM')) + '. Očekuje odobrenje preko Slack buttons ili Command Center.', amount: $json.total_amount } }] }) }}",
+          "options": {}
+        },
+        "id": "3742999e-80eb-424d-aaf5-abf298b7abdc",
+        "name": "Airtable - Audit (Pending Approval)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1824,
+          800
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Code - Prepare PO Record",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "When clicking \"Test workflow\"": {
+        "main": [
+          [
+            {
+              "node": "Code - Prepare PO Record",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Prepare PO Record": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Create PO Record",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Create PO Record": {
+        "main": [
+          [
+            {
+              "node": "Code - Extract PO Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Extract PO Data": {
+        "main": [
+          [
+            {
+              "node": "IF Under €500",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Under €500": {
+        "main": [
+          [
+            {
+              "node": "Slack - Auto Approved (< €500)",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "IF Under €2000",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Under €2000": {
+        "main": [
+          [
+            {
+              "node": "Slack - Dept Head (€500-€2K)",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "IF Under €5000",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Under €5000": {
+        "main": [
+          [
+            {
+              "node": "Slack - Controller (€2K-€5K)",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Slack - Controller + GM (€5K+)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Auto Approved (< €500)": {
+        "main": [
+          [
+            {
+              "node": "AI - Draft PO Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "AI - Draft PO Email": {
+        "main": [
+          [
+            {
+              "node": "Code - Parse Email Draft",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Parse Email Draft": {
+        "main": [
+          [
+            {
+              "node": "Send PO Email to Vendor",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Send PO Email to Vendor": {
+        "main": [
+          [
+            {
+              "node": "Code - Prepare Final Payloads",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Prepare Final Payloads": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Update PO Status",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Update PO Status": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Audit Trail",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Webhook - PO Creation": {
+        "main": [
+          [
+            {
+              "node": "Code - Prepare PO Record",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Dept Head (€500-€2K)": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Audit (Pending Approval)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Controller (€2K-€5K)": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Audit (Pending Approval)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Controller + GM (€5K+)": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Audit (Pending Approval)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Martin Cupic",
+    "name": "Version ace212b1",
+    "description": "",
+    "autosaved": true,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-19T02:53:59.841Z",
+        "id": 16,
+        "workflowId": "bOqIhl8Law9FDgTE",
+        "versionId": "ace212b1-ba3d-43e3-8034-b3fdd9902509",
+        "event": "activated",
+        "userId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    ]
+  }
+}

@@ -1,0 +1,1940 @@
+{
+  "updatedAt": "2026-04-12T01:14:31.278Z",
+  "createdAt": "2026-04-10T19:34:47.836Z",
+  "id": "QWff9FlYa2GLaLq5",
+  "name": "07 - Three-Way Match V3",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        192
+      ],
+      "id": "d07602c7-38f2-49b1-8f0f-e2559d312b86",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {},
+      "id": "0022f5b0-4597-4eb6-a21a-4442be8de0d2",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Invoice%20Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={invoice_number}=\"{{ $json.invoice_number }}\""
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "53addd5f-772f-4219-a367-e9b9ec384de8",
+      "name": "Airtable - Get Invoice Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Invoice%20Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "=AND({seller_name}=\"{{ $json.records[0].fields.seller_name }}\",{invoice_amount}={{ $json.records[0].fields.invoice_amount }},{invoice_number}!=\"{{ $json.records[0].fields.invoice_number }}\")"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2889b2b5-c8d3-4644-a0f3-d6a0ced3d48d",
+      "name": "Airtable - Duplicate Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-dups",
+              "leftValue": "={{ $json.records.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e7892044-da21-46c0-8bc4-672d188120e6",
+      "name": "IF Duplicate Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        656,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=🚫 *DUPLICATE INVOICE REJECTED*\n\nInvoice from {{ $('Airtable - Get Invoice Data').first().json.records[0].fields.seller_name }} for ${{ $('Airtable - Get Invoice Data').first().json.records[0].fields.invoice_amount }}\nInvoice #{{ $('Airtable - Get Invoice Data').first().json.records[0].fields.invoice_number }}\n\nThis matches an existing invoice in the system. Rejected automatically.",
+        "otherOptions": {}
+      },
+      "id": "0a572135-73e7-4a7e-8350-7dbda2b6e3c9",
+      "name": "Slack - Duplicate Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        880,
+        64
+      ],
+      "webhookId": "8137e6e3-a4b5-49f8-9435-d367e3fe5305",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "=FIND(SUBSTITUTE(SUBSTITUTE(\"{{ $('Airtable - Get Invoice Data').first().json.records[0].fields.po_number }}\",\"PO\",\"\"),\" \",\"\"),SUBSTITUTE(SUBSTITUTE({po_number},\"PO\",\"\"),\" \",\"\"))>0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0199d354-3be7-492f-82cd-42d388543005",
+      "name": "Airtable - Get Matching PO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        304
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "po-found",
+              "leftValue": "={{ $json.records.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e91d6de1-6664-46de-8618-7e9abe00f875",
+      "name": "IF PO Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=⚠️ *NO PO MATCH* for Invoice #{{ $('Airtable - Get Invoice Data').first().json.records[0].fields.invoice_number }} from {{ $('Airtable - Get Invoice Data').first().json.records[0].fields.seller_name }} (${{ $('Airtable - Get Invoice Data').first().json.records[0].fields.invoice_amount }})\n\nNo matching PO found for reference: {{ $('Airtable - Get Invoice Data').first().json.records[0].fields.po_number }}\nRouting to Controller for manual review.",
+        "otherOptions": {}
+      },
+      "id": "c90e1554-037c-42a4-a417-4c95a3257f2b",
+      "name": "Slack - No PO Match Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1328,
+        432
+      ],
+      "webhookId": "09bbadd9-bd94-4cc6-b625-78e8813b2d9c",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Receiving_Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "=FIND(SUBSTITUTE(SUBSTITUTE(\"{{ $('Airtable - Get Invoice Data').first().json.records[0].fields.po_number }}\",\"PO\",\"\"),\" \",\"\"),SUBSTITUTE(SUBSTITUTE({po_number},\"PO\",\"\"),\" \",\"\"))>0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2bc22d1-8508-4011-8d07-e14236774747",
+      "name": "Airtable - Get Receiving Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1328,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Contract_Line_Items",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={vendor_name}=\"{{ $('Airtable - Get Invoice Data').first().json.records[0].fields.seller_name }}\""
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "dbd9541d-ac79-413e-be34-070a052bd1c7",
+      "name": "Airtable - Get Contracted Prices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1536,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20GL%20Account%20Mapping",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "32e5d110-1ae9-4577-a521-62173591da71",
+      "name": "Airtable - Get GL Mapping",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge all data into a single payload for the AI\nconst invoiceResp = $('Airtable - Get Invoice Data').first().json;\nconst poResp = $('Airtable - Get Matching PO').first().json;\nconst receivingResp = $('Airtable - Get Receiving Report').first().json;\nconst pricesResp = $('Airtable - Get Contracted Prices').first().json;\nconst glResp = $('Airtable - Get GL Mapping').first().json;\n\nconst inv = invoiceResp.records[0];\nconst poRec = poResp.records?.[0];\nconst recRec = receivingResp.records?.[0];\n\nlet poLinesFormatted = 'No PO line items found';\nif (poRec?.fields?.items_json) {\n  try {\n    const poLines = JSON.parse(poRec.fields.items_json);\n    poLinesFormatted = poLines.map(l =>\n      `${l.item_name} ${l.quantity} ${l.unit || ''} @ $${l.unit_price}`\n    ).join('\\n');\n  } catch (e) {\n    poLinesFormatted = poRec.fields.items_json;\n  }\n}\n\nlet receivingLinesFormatted = 'No receiving record found';\nif (recRec?.fields?.items_received_json) {\n  try {\n    const recLines = JSON.parse(recRec.fields.items_received_json);\n    receivingLinesFormatted = recLines.map(l =>\n      `${l.item_name} ${l.qty_received} ${l.unit || ''} (ordered: ${l.qty_ordered})`\n    ).join('\\n');\n  } catch (e) {\n    receivingLinesFormatted = recRec.fields.items_received_json;\n  }\n}\n\nlet contractedPricesFormatted = 'No contracted prices on file';\nif (pricesResp.records?.length > 0) {\n  contractedPricesFormatted = pricesResp.records.map(r =>\n    `${r.fields.item_name}: $${r.fields.contracted_price}/${r.fields.unit_of_measure}`\n  ).join('\\n');\n}\n\nlet glMapping = 'No GL mapping available';\nif (glResp.records?.length > 0) {\n  glMapping = glResp.records.map(r => {\n    const f = r.fields;\n    return `${f['Item Category'] || f.item_category || 'Unknown'} → ${f['GL Code'] || f.gl_code || 'N/A'} (${f['GL Name'] || f.gl_name || 'N/A'})`;\n  }).join('\\n');\n}\n\nreturn [{\n  json: {\n    invoice_number: inv.fields.invoice_number,\n    vendor_name: inv.fields.seller_name,\n    invoice_date: inv.fields.invoice_date,\n    po_reference: inv.fields.po_number,\n    subtotal: inv.fields.subtotal || 0,\n    tax: inv.fields.total_tax || 0,\n    total: inv.fields.invoice_amount,\n    currency: inv.fields.currency || 'USD',\n    po_number: poRec?.fields?.po_number || inv.fields.po_number,\n    po_lines_formatted: poLinesFormatted,\n    po_total: poRec?.fields?.total_amount || 0,\n    receiving_date: recRec?.fields?.date_received || 'N/A',\n    receiving_lines_formatted: receivingLinesFormatted,\n    contracted_prices_formatted: contractedPricesFormatted,\n    gl_mapping: glMapping,\n    invoice_record_id: inv.id,\n    vendor_email: inv.fields.seller_email || ''\n  }\n}];"
+      },
+      "id": "39d8db2b-5400-416b-b676-ac6cf51bdb0f",
+      "name": "Code - Merge Data for AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 2000, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are the AI Accounts Payable processor for a hotel. You perform three-way matching: comparing vendor invoices against purchase orders and receiving reports.\\n\\nClassification rules:\\n- PERFECT_MATCH: All lines match within $0.50 total tolerance\\n- MINOR_DISCREPANCY: Total variance ≤ $25 — auto-approve with note\\n- MAJOR_DISCREPANCY: Total variance > $25 but < $100 — hold for Controller review\\n- DISPUTE_REQUIRED: Total variance ≥ $100, OR vendor billed for undelivered items, OR price exceeds contracted rate by > 5%\\n\\nFor DISPUTE_REQUIRED, draft a professional but firm vendor email.\\nFor all classifications, assign GL codes to each line item.\\nRespond ONLY in valid JSON. No markdown, no backticks, no explanation outside the JSON.' }, { role: 'user', content: 'Perform three-way match:\\n\\nINVOICE:\\nVendor: ' + $json.vendor_name + '\\nInvoice #: ' + $json.invoice_number + '\\nInvoice Date: ' + $json.invoice_date + '\\nPO Reference: ' + $json.po_reference + '\\nSubtotal: $' + $json.subtotal + '\\nTax: $' + $json.tax + '\\nTotal: $' + $json.total + '\\n\\nMATCHING PO (' + $json.po_number + '):\\n' + $json.po_lines_formatted + '\\nPO Total: $' + $json.po_total + '\\n\\nRECEIVING REPORT (' + $json.receiving_date + '):\\n' + $json.receiving_lines_formatted + '\\n\\nCONTRACTED PRICES:\\n' + $json.contracted_prices_formatted + '\\n\\nGL CODE MAPPING:\\n' + $json.gl_mapping + '\\n\\nRespond in JSON:\\n{\\n  \"classification\": \"PERFECT_MATCH|MINOR_DISCREPANCY|MAJOR_DISCREPANCY|DISPUTE_REQUIRED\",\\n  \"total_variance\": number,\\n  \"line_results\": [{\"item\": \"...\", \"status\": \"MATCH|PRICE_MISMATCH|QTY_MISMATCH|NOT_ORDERED\", \"invoice_amount\": number, \"expected_amount\": number, \"variance\": number, \"gl_code\": \"...\", \"gl_name\": \"...\"}],\\n  \"summary\": \"brief explanation\",\\n  \"dispute_email\": \"full email text if DISPUTE_REQUIRED, otherwise null\",\\n  \"recommended_action\": \"...\"\\n}' }] }) }}",
+        "options": {}
+      },
+      "id": "578a8fcb-6af5-4d07-a8fb-6429c6e428bc",
+      "name": "AI - Three-Way Match",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2208,
+        192
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst content = response.choices[0].message.content;\nconst parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\n\nconst context = $('Code - Merge Data for AI').first().json;\nreturn [{ json: { ...parsed, ...context } }];"
+      },
+      "id": "dc8032da-d370-4d7d-b57e-3796dfbe770d",
+      "name": "Code - Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2416,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.classification }}",
+                    "rightValue": "PERFECT_MATCH",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.classification }}",
+                    "rightValue": "MINOR_DISCREPANCY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.classification }}",
+                    "rightValue": "MAJOR_DISCREPANCY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.classification }}",
+                    "rightValue": "DISPUTE_REQUIRED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e79b3f19-024f-48e5-89ee-fe268499bb14",
+      "name": "Switch - Classification",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2640,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=✅ *Invoice Auto-Approved* — Perfect Match\n\nInvoice #{{ $json.invoice_number }} from {{ $json.vendor_name }} — ${{ $json.total }}\n{{ $json.summary }}",
+        "otherOptions": {}
+      },
+      "id": "d1b228c0-bfe5-4118-a991-d49291817f50",
+      "name": "Slack - Perfect Match",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        2864,
+        0
+      ],
+      "webhookId": "b9290a77-ecf6-4f83-83a9-1bce2578febf",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=✅ *Invoice Auto-Approved* — Minor Discrepancy (${{ $json.total_variance }})\n\nInvoice #{{ $json.invoice_number }} from {{ $json.vendor_name }} — ${{ $json.total }}\n{{ $json.summary }}",
+        "otherOptions": {}
+      },
+      "id": "ef16cc83-8d6e-4f17-8174-f328a1065baa",
+      "name": "Slack - Minor Discrepancy",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        2864,
+        160
+      ],
+      "webhookId": "d2532eae-fee9-4b18-9126-0a5139355b1f",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=⚠️ *Invoice Needs Review* — Major Discrepancy (${{ $json.total_variance }})\n\nInvoice #{{ $json.invoice_number }} from {{ $json.vendor_name }} — ${{ $json.total }}\n\n{{ $json.summary }}\n\n@controller — React ✅ to approve or ❌ to reject",
+        "otherOptions": {}
+      },
+      "id": "06d4930a-7b9a-49a8-9d94-ad25c1701ba7",
+      "name": "Slack - Major Discrepancy",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        2864,
+        320
+      ],
+      "webhookId": "a87ea3df-fe2d-4867-83d2-c0179209b756",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "n1815764@gmail.com",
+        "toEmail": "={{ $json.vendor_email }}",
+        "subject": "=Invoice Dispute — {{ $json.invoice_number }}",
+        "options": {}
+      },
+      "id": "f18bdc65-1ea2-4fc2-b7fd-4e7306780664",
+      "name": "Email - Send Dispute to Vendor",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2864,
+        480
+      ],
+      "webhookId": "8b2b2045-793b-4c4b-aace-b66de66da1d8",
+      "credentials": {
+        "smtp": {
+          "id": "gMeJAzEnruR2Zuau",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=📧 *Dispute Email Sent* — Invoice #{{ $json.invoice_number }}\n\nVendor: {{ $json.vendor_name }}\nVariance: ${{ $json.total_variance }}\n{{ $json.summary }}\n\nDispute email sent to {{ $json.vendor_email }}",
+        "otherOptions": {}
+      },
+      "id": "37a7e925-e93f-4036-9107-b5bf72cc64b9",
+      "name": "Slack - Dispute Sent Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        3088,
+        480
+      ],
+      "webhookId": "2aaa279a-9ef3-4b6f-9607-cf887097848e",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Gather match results from the AI response node\n// This runs after Slack notifications, so we pull from the upstream AI node\nconst data = $('Code - Parse AI Response').first().json;\n\nconst updateBody = {\n  fields: {\n    match_status: data.classification,\n    match_details_json: JSON.stringify(data.line_results || []),\n    gl_account: (data.line_results && data.line_results[0]) ? data.line_results[0].gl_code : '',\n    approved: ['PERFECT_MATCH', 'MINOR_DISCREPANCY'].includes(data.classification)\n  }\n};\n\nconst auditBody = {\n  records: [{\n    fields: {\n      reference_id: data.invoice_number || 'Unknown',\n      event_type: 'Invoice Matched',\n      actor: 'AI',\n      details: (data.classification || 'Unknown') + ': ' + (data.summary || 'No summary') + ' | Variance: $' + (data.total_variance || 0),\n      amount: data.total || 0\n    }\n  }]\n};\n\nreturn [{\n  json: {\n    invoice_record_id: data.invoice_record_id,\n    update_body: JSON.stringify(updateBody),\n    audit_body: JSON.stringify(auditBody)\n  }\n}];"
+      },
+      "id": "d6190b06-f25e-4f1d-96df-94a2fe8155ef",
+      "name": "Code - Prepare Airtable Payloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3312,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/Invoice%20Log/{{ $json.invoice_record_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.update_body }}",
+        "options": {}
+      },
+      "id": "918dbcb4-25dd-4a10-9bf2-8ce7fc93c33c",
+      "name": "Airtable - Update Invoice Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3536,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Code - Prepare Airtable Payloads').first().json.audit_body }}",
+        "options": {}
+      },
+      "id": "54fa4d43-7e64-43cf-b942-a927861c3fd4",
+      "name": "Airtable - Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3760,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Invoice Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Invoice Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Invoice Data": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Duplicate Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Duplicate Check": {
+      "main": [
+        [
+          {
+            "node": "IF Duplicate Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Duplicate Found": {
+      "main": [
+        [
+          {
+            "node": "Slack - Duplicate Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Airtable - Get Matching PO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Matching PO": {
+      "main": [
+        [
+          {
+            "node": "IF PO Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF PO Found": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Receiving Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack - No PO Match Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Receiving Report": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Contracted Prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Contracted Prices": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get GL Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get GL Mapping": {
+      "main": [
+        [
+          {
+            "node": "Code - Merge Data for AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Merge Data for AI": {
+      "main": [
+        [
+          {
+            "node": "AI - Three-Way Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Three-Way Match": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Switch - Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Classification": {
+      "main": [
+        [
+          {
+            "node": "Slack - Perfect Match",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack - Minor Discrepancy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack - Major Discrepancy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email - Send Dispute to Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Perfect Match": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Airtable Payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Minor Discrepancy": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Airtable Payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Major Discrepancy": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Airtable Payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email - Send Dispute to Vendor": {
+      "main": [
+        [
+          {
+            "node": "Slack - Dispute Sent Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Dispute Sent Notification": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Airtable Payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Airtable Payloads": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Update Invoice Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Update Invoice Status": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "When clicking \"Test workflow\"": [
+      {
+        "json": {
+          "invoice_number": "WSI - 2026-3310"
+        }
+      }
+    ]
+  },
+  "versionId": "8d38c8c7-a3a1-46cf-b0ac-e38b1e310753",
+  "activeVersionId": "8d38c8c7-a3a1-46cf-b0ac-e38b1e310753",
+  "versionCounter": 20,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:22:50.053Z",
+      "createdAt": "2026-04-12T00:22:50.053Z",
+      "role": "workflow:editor",
+      "workflowId": "QWff9FlYa2GLaLq5",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:34:47.838Z",
+      "createdAt": "2026-04-10T19:34:47.838Z",
+      "role": "workflow:owner",
+      "workflowId": "QWff9FlYa2GLaLq5",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-04-12T01:15:16.000Z",
+    "createdAt": "2026-04-12T01:14:31.279Z",
+    "versionId": "8d38c8c7-a3a1-46cf-b0ac-e38b1e310753",
+    "workflowId": "QWff9FlYa2GLaLq5",
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "passthrough"
+        },
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          0,
+          192
+        ],
+        "id": "d07602c7-38f2-49b1-8f0f-e2559d312b86",
+        "name": "When Executed by Another Workflow"
+      },
+      {
+        "parameters": {},
+        "id": "0022f5b0-4597-4eb6-a21a-4442be8de0d2",
+        "name": "When clicking \"Test workflow\"",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Invoice%20Log",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "filterByFormula",
+                "value": "={invoice_number}=\"{{ $json.invoice_number }}\""
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "53addd5f-772f-4219-a367-e9b9ec384de8",
+        "name": "Airtable - Get Invoice Data",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          224,
+          192
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Invoice%20Log",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "filterByFormula",
+                "value": "=AND({seller_name}=\"{{ $json.records[0].fields.seller_name }}\",{invoice_amount}={{ $json.records[0].fields.invoice_amount }},{invoice_number}!=\"{{ $json.records[0].fields.invoice_number }}\")"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "2889b2b5-c8d3-4644-a0f3-d6a0ced3d48d",
+        "name": "Airtable - Duplicate Check",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          448,
+          192
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "has-dups",
+                "leftValue": "={{ $json.records.length }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "e7892044-da21-46c0-8bc4-672d188120e6",
+        "name": "IF Duplicate Found",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          656,
+          192
+        ]
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=🚫 *DUPLICATE INVOICE REJECTED*\n\nInvoice from {{ $('Airtable - Get Invoice Data').first().json.records[0].fields.seller_name }} for ${{ $('Airtable - Get Invoice Data').first().json.records[0].fields.invoice_amount }}\nInvoice #{{ $('Airtable - Get Invoice Data').first().json.records[0].fields.invoice_number }}\n\nThis matches an existing invoice in the system. Rejected automatically.",
+          "otherOptions": {}
+        },
+        "id": "0a572135-73e7-4a7e-8350-7dbda2b6e3c9",
+        "name": "Slack - Duplicate Alert",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          880,
+          64
+        ],
+        "webhookId": "8137e6e3-a4b5-49f8-9435-d367e3fe5305",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "filterByFormula",
+                "value": "=FIND(SUBSTITUTE(SUBSTITUTE(\"{{ $('Airtable - Get Invoice Data').first().json.records[0].fields.po_number }}\",\"PO\",\"\"),\" \",\"\"),SUBSTITUTE(SUBSTITUTE({po_number},\"PO\",\"\"),\" \",\"\"))>0"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "0199d354-3be7-492f-82cd-42d388543005",
+        "name": "Airtable - Get Matching PO",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          880,
+          304
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "po-found",
+                "leftValue": "={{ $json.records.length }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "e91d6de1-6664-46de-8618-7e9abe00f875",
+        "name": "IF PO Found",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1104,
+          304
+        ]
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=⚠️ *NO PO MATCH* for Invoice #{{ $('Airtable - Get Invoice Data').first().json.records[0].fields.invoice_number }} from {{ $('Airtable - Get Invoice Data').first().json.records[0].fields.seller_name }} (${{ $('Airtable - Get Invoice Data').first().json.records[0].fields.invoice_amount }})\n\nNo matching PO found for reference: {{ $('Airtable - Get Invoice Data').first().json.records[0].fields.po_number }}\nRouting to Controller for manual review.",
+          "otherOptions": {}
+        },
+        "id": "c90e1554-037c-42a4-a417-4c95a3257f2b",
+        "name": "Slack - No PO Match Alert",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          1328,
+          432
+        ],
+        "webhookId": "09bbadd9-bd94-4cc6-b625-78e8813b2d9c",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Receiving_Log",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "filterByFormula",
+                "value": "=FIND(SUBSTITUTE(SUBSTITUTE(\"{{ $('Airtable - Get Invoice Data').first().json.records[0].fields.po_number }}\",\"PO\",\"\"),\" \",\"\"),SUBSTITUTE(SUBSTITUTE({po_number},\"PO\",\"\"),\" \",\"\"))>0"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "c2bc22d1-8508-4011-8d07-e14236774747",
+        "name": "Airtable - Get Receiving Report",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1328,
+          192
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Contract_Line_Items",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "filterByFormula",
+                "value": "={vendor_name}=\"{{ $('Airtable - Get Invoice Data').first().json.records[0].fields.seller_name }}\""
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "dbd9541d-ac79-413e-be34-070a052bd1c7",
+        "name": "Airtable - Get Contracted Prices",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1536,
+          192
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20GL%20Account%20Mapping",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "options": {}
+        },
+        "id": "32e5d110-1ae9-4577-a521-62173591da71",
+        "name": "Airtable - Get GL Mapping",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1760,
+          192
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Merge all data into a single payload for the AI\nconst invoiceResp = $('Airtable - Get Invoice Data').first().json;\nconst poResp = $('Airtable - Get Matching PO').first().json;\nconst receivingResp = $('Airtable - Get Receiving Report').first().json;\nconst pricesResp = $('Airtable - Get Contracted Prices').first().json;\nconst glResp = $('Airtable - Get GL Mapping').first().json;\n\nconst inv = invoiceResp.records[0];\nconst poRec = poResp.records?.[0];\nconst recRec = receivingResp.records?.[0];\n\nlet poLinesFormatted = 'No PO line items found';\nif (poRec?.fields?.items_json) {\n  try {\n    const poLines = JSON.parse(poRec.fields.items_json);\n    poLinesFormatted = poLines.map(l =>\n      `${l.item_name} ${l.quantity} ${l.unit || ''} @ $${l.unit_price}`\n    ).join('\\n');\n  } catch (e) {\n    poLinesFormatted = poRec.fields.items_json;\n  }\n}\n\nlet receivingLinesFormatted = 'No receiving record found';\nif (recRec?.fields?.items_received_json) {\n  try {\n    const recLines = JSON.parse(recRec.fields.items_received_json);\n    receivingLinesFormatted = recLines.map(l =>\n      `${l.item_name} ${l.qty_received} ${l.unit || ''} (ordered: ${l.qty_ordered})`\n    ).join('\\n');\n  } catch (e) {\n    receivingLinesFormatted = recRec.fields.items_received_json;\n  }\n}\n\nlet contractedPricesFormatted = 'No contracted prices on file';\nif (pricesResp.records?.length > 0) {\n  contractedPricesFormatted = pricesResp.records.map(r =>\n    `${r.fields.item_name}: $${r.fields.contracted_price}/${r.fields.unit_of_measure}`\n  ).join('\\n');\n}\n\nlet glMapping = 'No GL mapping available';\nif (glResp.records?.length > 0) {\n  glMapping = glResp.records.map(r => {\n    const f = r.fields;\n    return `${f['Item Category'] || f.item_category || 'Unknown'} → ${f['GL Code'] || f.gl_code || 'N/A'} (${f['GL Name'] || f.gl_name || 'N/A'})`;\n  }).join('\\n');\n}\n\nreturn [{\n  json: {\n    invoice_number: inv.fields.invoice_number,\n    vendor_name: inv.fields.seller_name,\n    invoice_date: inv.fields.invoice_date,\n    po_reference: inv.fields.po_number,\n    subtotal: inv.fields.subtotal || 0,\n    tax: inv.fields.total_tax || 0,\n    total: inv.fields.invoice_amount,\n    currency: inv.fields.currency || 'USD',\n    po_number: poRec?.fields?.po_number || inv.fields.po_number,\n    po_lines_formatted: poLinesFormatted,\n    po_total: poRec?.fields?.total_amount || 0,\n    receiving_date: recRec?.fields?.date_received || 'N/A',\n    receiving_lines_formatted: receivingLinesFormatted,\n    contracted_prices_formatted: contractedPricesFormatted,\n    gl_mapping: glMapping,\n    invoice_record_id: inv.id,\n    vendor_email: inv.fields.seller_email || ''\n  }\n}];"
+        },
+        "id": "39d8db2b-5400-416b-b676-ac6cf51bdb0f",
+        "name": "Code - Merge Data for AI",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1984,
+          192
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.moonshot.ai/v1/chat/completions",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 2000, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are the AI Accounts Payable processor for a hotel. You perform three-way matching: comparing vendor invoices against purchase orders and receiving reports.\\n\\nClassification rules:\\n- PERFECT_MATCH: All lines match within $0.50 total tolerance\\n- MINOR_DISCREPANCY: Total variance ≤ $25 — auto-approve with note\\n- MAJOR_DISCREPANCY: Total variance > $25 but < $100 — hold for Controller review\\n- DISPUTE_REQUIRED: Total variance ≥ $100, OR vendor billed for undelivered items, OR price exceeds contracted rate by > 5%\\n\\nFor DISPUTE_REQUIRED, draft a professional but firm vendor email.\\nFor all classifications, assign GL codes to each line item.\\nRespond ONLY in valid JSON. No markdown, no backticks, no explanation outside the JSON.' }, { role: 'user', content: 'Perform three-way match:\\n\\nINVOICE:\\nVendor: ' + $json.vendor_name + '\\nInvoice #: ' + $json.invoice_number + '\\nInvoice Date: ' + $json.invoice_date + '\\nPO Reference: ' + $json.po_reference + '\\nSubtotal: $' + $json.subtotal + '\\nTax: $' + $json.tax + '\\nTotal: $' + $json.total + '\\n\\nMATCHING PO (' + $json.po_number + '):\\n' + $json.po_lines_formatted + '\\nPO Total: $' + $json.po_total + '\\n\\nRECEIVING REPORT (' + $json.receiving_date + '):\\n' + $json.receiving_lines_formatted + '\\n\\nCONTRACTED PRICES:\\n' + $json.contracted_prices_formatted + '\\n\\nGL CODE MAPPING:\\n' + $json.gl_mapping + '\\n\\nRespond in JSON:\\n{\\n  \"classification\": \"PERFECT_MATCH|MINOR_DISCREPANCY|MAJOR_DISCREPANCY|DISPUTE_REQUIRED\",\\n  \"total_variance\": number,\\n  \"line_results\": [{\"item\": \"...\", \"status\": \"MATCH|PRICE_MISMATCH|QTY_MISMATCH|NOT_ORDERED\", \"invoice_amount\": number, \"expected_amount\": number, \"variance\": number, \"gl_code\": \"...\", \"gl_name\": \"...\"}],\\n  \"summary\": \"brief explanation\",\\n  \"dispute_email\": \"full email text if DISPUTE_REQUIRED, otherwise null\",\\n  \"recommended_action\": \"...\"\\n}' }] }) }}",
+          "options": {}
+        },
+        "id": "578a8fcb-6af5-4d07-a8fb-6429c6e428bc",
+        "name": "AI - Three-Way Match",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2208,
+          192
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "ircrqFbA5nzR0ppe",
+            "name": "Header Auth account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const response = $input.first().json;\nconst content = response.choices[0].message.content;\nconst parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\n\nconst context = $('Code - Merge Data for AI').first().json;\nreturn [{ json: { ...parsed, ...context } }];"
+        },
+        "id": "dc8032da-d370-4d7d-b57e-3796dfbe770d",
+        "name": "Code - Parse AI Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2416,
+          192
+        ]
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.classification }}",
+                      "rightValue": "PERFECT_MATCH",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ]
+                },
+                "renameOutput": true
+              },
+              {
+                "conditions": {
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.classification }}",
+                      "rightValue": "MINOR_DISCREPANCY",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ]
+                },
+                "renameOutput": true
+              },
+              {
+                "conditions": {
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.classification }}",
+                      "rightValue": "MAJOR_DISCREPANCY",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ]
+                },
+                "renameOutput": true
+              },
+              {
+                "conditions": {
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.classification }}",
+                      "rightValue": "DISPUTE_REQUIRED",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ]
+                },
+                "renameOutput": true
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "e79b3f19-024f-48e5-89ee-fe268499bb14",
+        "name": "Switch - Classification",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3,
+        "position": [
+          2640,
+          192
+        ]
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=✅ *Invoice Auto-Approved* — Perfect Match\n\nInvoice #{{ $json.invoice_number }} from {{ $json.vendor_name }} — ${{ $json.total }}\n{{ $json.summary }}",
+          "otherOptions": {}
+        },
+        "id": "d1b228c0-bfe5-4118-a991-d49291817f50",
+        "name": "Slack - Perfect Match",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          2864,
+          0
+        ],
+        "webhookId": "b9290a77-ecf6-4f83-83a9-1bce2578febf",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=✅ *Invoice Auto-Approved* — Minor Discrepancy (${{ $json.total_variance }})\n\nInvoice #{{ $json.invoice_number }} from {{ $json.vendor_name }} — ${{ $json.total }}\n{{ $json.summary }}",
+          "otherOptions": {}
+        },
+        "id": "ef16cc83-8d6e-4f17-8174-f328a1065baa",
+        "name": "Slack - Minor Discrepancy",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          2864,
+          160
+        ],
+        "webhookId": "d2532eae-fee9-4b18-9126-0a5139355b1f",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=⚠️ *Invoice Needs Review* — Major Discrepancy (${{ $json.total_variance }})\n\nInvoice #{{ $json.invoice_number }} from {{ $json.vendor_name }} — ${{ $json.total }}\n\n{{ $json.summary }}\n\n@controller — React ✅ to approve or ❌ to reject",
+          "otherOptions": {}
+        },
+        "id": "06d4930a-7b9a-49a8-9d94-ad25c1701ba7",
+        "name": "Slack - Major Discrepancy",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          2864,
+          320
+        ],
+        "webhookId": "a87ea3df-fe2d-4867-83d2-c0179209b756",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "fromEmail": "n1815764@gmail.com",
+          "toEmail": "={{ $json.vendor_email }}",
+          "subject": "=Invoice Dispute — {{ $json.invoice_number }}",
+          "options": {}
+        },
+        "id": "f18bdc65-1ea2-4fc2-b7fd-4e7306780664",
+        "name": "Email - Send Dispute to Vendor",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          2864,
+          480
+        ],
+        "webhookId": "8b2b2045-793b-4c4b-aace-b66de66da1d8",
+        "credentials": {
+          "smtp": {
+            "id": "gMeJAzEnruR2Zuau",
+            "name": "SMTP account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=📧 *Dispute Email Sent* — Invoice #{{ $json.invoice_number }}\n\nVendor: {{ $json.vendor_name }}\nVariance: ${{ $json.total_variance }}\n{{ $json.summary }}\n\nDispute email sent to {{ $json.vendor_email }}",
+          "otherOptions": {}
+        },
+        "id": "37a7e925-e93f-4036-9107-b5bf72cc64b9",
+        "name": "Slack - Dispute Sent Notification",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          3088,
+          480
+        ],
+        "webhookId": "2aaa279a-9ef3-4b6f-9607-cf887097848e",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Gather match results from the AI response node\n// This runs after Slack notifications, so we pull from the upstream AI node\nconst data = $('Code - Parse AI Response').first().json;\n\nconst updateBody = {\n  fields: {\n    match_status: data.classification,\n    match_details_json: JSON.stringify(data.line_results || []),\n    gl_account: (data.line_results && data.line_results[0]) ? data.line_results[0].gl_code : '',\n    approved: ['PERFECT_MATCH', 'MINOR_DISCREPANCY'].includes(data.classification)\n  }\n};\n\nconst auditBody = {\n  records: [{\n    fields: {\n      reference_id: data.invoice_number || 'Unknown',\n      event_type: 'Invoice Matched',\n      actor: 'AI',\n      details: (data.classification || 'Unknown') + ': ' + (data.summary || 'No summary') + ' | Variance: $' + (data.total_variance || 0),\n      amount: data.total || 0\n    }\n  }]\n};\n\nreturn [{\n  json: {\n    invoice_record_id: data.invoice_record_id,\n    update_body: JSON.stringify(updateBody),\n    audit_body: JSON.stringify(auditBody)\n  }\n}];"
+        },
+        "id": "d6190b06-f25e-4f1d-96df-94a2fe8155ef",
+        "name": "Code - Prepare Airtable Payloads",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3312,
+          192
+        ]
+      },
+      {
+        "parameters": {
+          "method": "PATCH",
+          "url": "=https://api.airtable.com/v0/appjHlTQID87ODAJL/Invoice%20Log/{{ $json.invoice_record_id }}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.update_body }}",
+          "options": {}
+        },
+        "id": "918dbcb4-25dd-4a10-9bf2-8ce7fc93c33c",
+        "name": "Airtable - Update Invoice Status",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3536,
+          192
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "airtableTokenApi",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $('Code - Prepare Airtable Payloads').first().json.audit_body }}",
+          "options": {}
+        },
+        "id": "54fa4d43-7e64-43cf-b942-a927861c3fd4",
+        "name": "Airtable - Audit Trail",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3760,
+          192
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Get Invoice Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "When clicking \"Test workflow\"": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Get Invoice Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Get Invoice Data": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Duplicate Check",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Duplicate Check": {
+        "main": [
+          [
+            {
+              "node": "IF Duplicate Found",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Duplicate Found": {
+        "main": [
+          [
+            {
+              "node": "Slack - Duplicate Alert",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Airtable - Get Matching PO",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Get Matching PO": {
+        "main": [
+          [
+            {
+              "node": "IF PO Found",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF PO Found": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Get Receiving Report",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Slack - No PO Match Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Get Receiving Report": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Get Contracted Prices",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Get Contracted Prices": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Get GL Mapping",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Get GL Mapping": {
+        "main": [
+          [
+            {
+              "node": "Code - Merge Data for AI",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Merge Data for AI": {
+        "main": [
+          [
+            {
+              "node": "AI - Three-Way Match",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "AI - Three-Way Match": {
+        "main": [
+          [
+            {
+              "node": "Code - Parse AI Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Parse AI Response": {
+        "main": [
+          [
+            {
+              "node": "Switch - Classification",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Switch - Classification": {
+        "main": [
+          [
+            {
+              "node": "Slack - Perfect Match",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Slack - Minor Discrepancy",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Slack - Major Discrepancy",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Email - Send Dispute to Vendor",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Perfect Match": {
+        "main": [
+          [
+            {
+              "node": "Code - Prepare Airtable Payloads",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Minor Discrepancy": {
+        "main": [
+          [
+            {
+              "node": "Code - Prepare Airtable Payloads",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Major Discrepancy": {
+        "main": [
+          [
+            {
+              "node": "Code - Prepare Airtable Payloads",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Email - Send Dispute to Vendor": {
+        "main": [
+          [
+            {
+              "node": "Slack - Dispute Sent Notification",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Slack - Dispute Sent Notification": {
+        "main": [
+          [
+            {
+              "node": "Code - Prepare Airtable Payloads",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Prepare Airtable Payloads": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Update Invoice Status",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Airtable - Update Invoice Status": {
+        "main": [
+          [
+            {
+              "node": "Airtable - Audit Trail",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Martin Cupic",
+    "name": "Version 8d38c8c7",
+    "description": "",
+    "autosaved": true,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-12T01:15:15.976Z",
+        "id": 11,
+        "workflowId": "QWff9FlYa2GLaLq5",
+        "versionId": "8d38c8c7-a3a1-46cf-b0ac-e38b1e310753",
+        "event": "activated",
+        "userId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    ]
+  }
+}

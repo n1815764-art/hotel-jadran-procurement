@@ -1,0 +1,1165 @@
+{
+  "updatedAt": "2026-04-11T07:20:22.050Z",
+  "createdAt": "2026-04-08T22:29:34.790Z",
+  "id": "z4uvdGcwrwNdfNL6",
+  "name": "WF15 — AR Aging Monitor & Dunning",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "9e2ed322-6fe2-4647-9242-0a6b15eb4ad0",
+      "name": "Cron - Daily 09:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -656,
+        208
+      ],
+      "notes": "Runs every day at 09:30 CET"
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblWg64KRT2VKycZt",
+          "mode": "id"
+        },
+        "filterByFormula": "AND({status} != 'Paid', {status} != 'Written Off')",
+        "options": {}
+      },
+      "id": "07c9b530-c322-45be-9d24-520f135aafa5",
+      "name": "Airtable - Get Open AR Records",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -448,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// WF15 — Calculate aging for all open AR records\nconst records = $input.all();\nconst today = new Date();\ntoday.setHours(0, 0, 0, 0);\n\nconst needs30 = [];\nconst needs60 = [];\nconst needs90 = [];\nconst statusUpdates = [];\nconst recordMap = {}; // ar_id → airtable record id\n\nconst summary = {\n  current: { count: 0, total: 0 },\n  days30: { count: 0, total: 0 },\n  days60: { count: 0, total: 0 },\n  days90plus: { count: 0, total: 0 },\n  totalOutstanding: 0\n};\n\nfor (const record of records) {\n  const f = record.json.fields || record.json;\n  const recId = record.json.id || f.id;\n  const arId = f.ar_id;\n  const dueDate = new Date(f.due_date);\n  dueDate.setHours(0, 0, 0, 0);\n  const balance = parseFloat(f.balance) || (parseFloat(f.amount) - parseFloat(f.amount_paid || 0));\n\n  if (balance <= 0) continue;\n\n  recordMap[arId] = recId;\n  const daysOverdue = Math.floor((today - dueDate) / 86400000);\n  let newStatus;\n\n  if (daysOverdue <= 0) {\n    newStatus = 'Current';\n    summary.current.count++;\n    summary.current.total += balance;\n  } else if (daysOverdue <= 30) {\n    newStatus = '30 Days';\n    summary.days30.count++;\n    summary.days30.total += balance;\n    if (!f.alert_30_sent) {\n      needs30.push({\n        ar_id: arId, client_name: f.client_name, client_email: f.client_email,\n        client_type: f.client_type?.name || f.client_type || '',\n        invoice_number: f.invoice_number, invoice_date: f.invoice_date,\n        due_date: f.due_date, amount: parseFloat(f.amount) || 0,\n        balance, days_overdue: daysOverdue,\n        payment_terms: f.payment_terms || 'Net 30',\n        department: f.department || '', airtable_id: recId\n      });\n    }\n  } else if (daysOverdue <= 60) {\n    newStatus = '60 Days';\n    summary.days60.count++;\n    summary.days60.total += balance;\n    if (!f.alert_60_sent) {\n      needs60.push({\n        ar_id: arId, client_name: f.client_name, client_email: f.client_email,\n        client_type: f.client_type?.name || f.client_type || '',\n        invoice_number: f.invoice_number, invoice_date: f.invoice_date,\n        due_date: f.due_date, amount: parseFloat(f.amount) || 0,\n        balance, days_overdue: daysOverdue,\n        payment_terms: f.payment_terms || 'Net 30',\n        department: f.department || '', airtable_id: recId\n      });\n    }\n  } else {\n    newStatus = '90+ Days';\n    summary.days90plus.count++;\n    summary.days90plus.total += balance;\n    if (!f.alert_90_sent) {\n      needs90.push({\n        ar_id: arId, client_name: f.client_name, client_email: f.client_email,\n        client_type: f.client_type?.name || f.client_type || '',\n        invoice_number: f.invoice_number, invoice_date: f.invoice_date,\n        due_date: f.due_date, amount: parseFloat(f.amount) || 0,\n        balance, days_overdue: daysOverdue,\n        payment_terms: f.payment_terms || 'Net 30',\n        department: f.department || '', airtable_id: recId\n      });\n    }\n  }\n\n  summary.totalOutstanding += balance;\n\n  // Track status changes\n  const currentStatus = f.status?.name || f.status || '';\n  if (currentStatus !== newStatus) {\n    statusUpdates.push({ airtable_id: recId, newStatus });\n  }\n}\n\n// Format EUR\nconst fmtEur = (n) => `€${n.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;\n\n// Build Slack summary\nlet slackMsg = `📊 *DNEVNI PREGLED POTRAŽIVANJA — ${today.toLocaleDateString('de-DE')}*\\n\\n`;\nslackMsg += `💰 Ukupna potraživanja: *${fmtEur(summary.totalOutstanding)}*\\n\\n`;\nslackMsg += `   Tekuća (bez kašnjenja): ${summary.current.count} klijenata — ${fmtEur(summary.current.total)}\\n`;\nslackMsg += `   🟡 30 dana kašnjenja: ${summary.days30.count} klijenata — ${fmtEur(summary.days30.total)}\\n`;\nslackMsg += `   🟠 60 dana kašnjenja: ${summary.days60.count} klijenata — ${fmtEur(summary.days60.total)}\\n`;\nslackMsg += `   🔴 90+ dana kašnjenja: ${summary.days90plus.count} klijenata — ${fmtEur(summary.days90plus.total)}\\n`;\nslackMsg += `\\n📧 Danas šaljemo:\\n`;\nslackMsg += `   • ${needs30.length} podsjetnika (30 dana)\\n`;\nslackMsg += `   • ${needs60.length} opomena (60 dana)\\n`;\nslackMsg += `   • ${needs90.length} zadnjih opomena (90+ dana)\\n`;\n\nif (summary.days90plus.count > 0) {\n  slackMsg += `\\n⚠️ *KRITIČNO — Klijenti sa 90+ dana kašnjenja:*\\n`;\n  for (const acc of needs90) {\n    slackMsg += `   • ${acc.client_name} — ${fmtEur(acc.balance)} (${acc.days_overdue} dana)\\n`;\n  }\n  slackMsg += `   @zoran @martin`;\n}\n\nreturn [{\n  json: {\n    needs30, needs60, needs90, statusUpdates, summary, recordMap,\n    has30: needs30.length > 0,\n    has60: needs60.length > 0,\n    has90: needs90.length > 0,\n    hasOverdue: summary.days30.count + summary.days60.count + summary.days90plus.count > 0,\n    slackMessage: slackMsg,\n    todayStr: today.toISOString().split('T')[0]\n  }\n}];"
+      },
+      "id": "f11d1fc8-6b05-4131-9fdd-0654f3d26495",
+      "name": "Code - Calculate Aging",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Output one item per AR record needing a status update\nconst data = $('Code - Calculate Aging').first().json;\nreturn data.statusUpdates.map(u => ({\n  json: { recordId: u.airtable_id, newStatus: u.newStatus }\n}));"
+      },
+      "id": "23a76fc1-0154-4611-bf56-09c36120eedc",
+      "name": "Code - Prep Status Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblWg64KRT2VKycZt",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.newStatus }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "19a2d954-ca0b-4a43-9e82-300754b9f6f3",
+      "name": "Airtable - Update AR Statuses",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c30",
+              "leftValue": "={{ $('Code - Calculate Aging').first().json.has30 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6464c9ec-2f04-4916-bc26-035ebeab1011",
+      "name": "IF - Has 30-Day Alerts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Code - Calculate Aging').first().json;\nconst accounts = data.needs30;\nconst tier = 30;\nconst today = data.todayStr;\n\nconst systemPrompt = `Ti si profesionalni asistent za naplatu potraživanja Hotel Jadran, hotel sa 200 soba u Budvi, Crna Gora. Tvoj zadatak je da sastaviš profesionalne email poruke za naplatu dospjelih potraživanja na bosanskom/hrvatskom/srpskom jeziku (BCS).\\n\\nYou MUST respond with valid JSON only. No markdown code blocks, no backticks, no explanation outside the JSON. Raw JSON only.\\n\\nNIVO 30 — Prijateljski podsjetnik: Profesionalan, topao ton. Pretpostavi da je možda propust. Navedi broj fakture i iznos. Zatraži uplatu ili potvrdu datuma plaćanja.\\n\\nSvi emailovi moraju biti na BCS jeziku, koristiti formalno obraćanje (Poštovani/a), navesti konkretne brojeve faktura i iznose, identifikovati Hotel Jadran kao pošiljaoca, koristiti EUR valutu sa evropskim formatom (€1.850,00).\\n\\nFormat emaila: HTML sa <p> tagovima. Potpis: Odjeljenje finansija, Hotel Jadran, Budva, Tel: +382 33 XXX XXX, E-mail: finansije@hoteljadran.me\\n\\nOutput JSON format:\\n{\"emails\": [{\"ar_id\": \"AR-2026-0001\", \"client_name\": \"Naziv\", \"client_email\": \"email\", \"subject\": \"Subject BCS\", \"body\": \"HTML body BCS\", \"tier\": 30, \"cc_controller\": false, \"cc_gm\": false}]}`;\n\nconst userPrompt = `Dunning tier: ${tier}\\nDanašnji datum: ${today}\\nHotel: Hotel Jadran, Budva, Crna Gora\\nController: Zoran Radonjić (zoran@hoteljadran.me)\\n\\nDospjeli računi koji zahtijevaju opomenu nivoa ${tier}:\\n\\n${JSON.stringify(accounts, null, 2)}\\n\\nSastavi odgovarajući email za svaki račun.`;\n\nreturn [{\n  json: {\n    requestBody: {\n      model: 'kimi-k2.5',\n      max_tokens: 4000,\n      thinking: { type: 'disabled' },\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user', content: userPrompt }\n      ]\n    }\n  }\n}];"
+      },
+      "id": "46900776-5d9b-4c08-a56d-8c60c5562afc",
+      "name": "Code - Build Kimi Input (Tier 30)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "f0bd2cea-26c0-48c5-a301-0eabca7fa6b5",
+      "name": "HTTP - Kimi Prompt 14 (Tier 30)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        208
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      },
+      "notes": "Uses Header Auth credential: Name=Authorization, Value=Bearer YOUR_MOONSHOT_KEY. Create this credential if it doesn't exist."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Kimi response and output one item per email\nconst response = $input.first().json;\nconst content = response.choices[0].message.content;\nconst parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\nconst agingData = $('Code - Calculate Aging').first().json;\n\nreturn parsed.emails.map(email => ({\n  json: {\n    to: email.client_email,\n    subject: email.subject,\n    body: email.body,\n    cc: '',\n    ar_id: email.ar_id,\n    client_name: email.client_name,\n    airtable_record_id: agingData.recordMap[email.ar_id],\n    tier: 30,\n    flagField: 'alert_30_sent',\n    eventType: 'AR_REMINDER_30_SENT'\n  }\n}));"
+      },
+      "id": "158e6d19-28f2-438d-99fc-f381f8ad06a7",
+      "name": "Code - Parse Emails (Tier 30)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n1815764@gmail.com",
+        "toEmail": "n1815764@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.body }}",
+        "options": {
+          "replyTo": "finansije@hoteljadran.me"
+        }
+      },
+      "id": "b56733ca-8e4a-4f17-996c-3f8cab797d50",
+      "name": "Gmail - Send 30-Day Reminders",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        880,
+        208
+      ],
+      "webhookId": "b940e3aa-cdc0-40c8-a84a-cb0ecd026be4",
+      "credentials": {
+        "smtp": {
+          "id": "gMeJAzEnruR2Zuau",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblWg64KRT2VKycZt",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "alert_30_sent": true,
+            "last_contact_date": "={{ new Date().toISOString().split('T')[0] }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "e4ef5e4b-6805-4a68-8ce0-aa34097ace90",
+      "name": "Airtable - Set alert_30_sent",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1104,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl4pTUUujvn59G7b",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reference_id": "={{ $json.ar_id }}",
+            "event_type": "AR_REMINDER_30_SENT",
+            "actor": "System",
+            "details": "Podsjetnik (30 dana) poslan klijentu {{ $json.client_name }} na {{ $json.to }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "5ed50a0f-e3b4-46fb-9b0d-9683065330b2",
+      "name": "Airtable - Audit Trail (30-Day)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1328,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c60",
+              "leftValue": "={{ $('Code - Calculate Aging').first().json.has60 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6cad5990-fe3d-42aa-9c22-a1bb666cdb2b",
+      "name": "IF - Has 60-Day Alerts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Code - Calculate Aging').first().json;\nconst accounts = data.needs60;\nconst tier = 60;\nconst today = data.todayStr;\n\nconst systemPrompt = `Ti si profesionalni asistent za naplatu potraživanja Hotel Jadran, hotel sa 200 soba u Budvi, Crna Gora.\\n\\nYou MUST respond with valid JSON only. No markdown code blocks, no backticks, no explanation outside the JSON. Raw JSON only.\\n\\nNIVO 60 — Formalna opomena: Napomeni da je ovo drugi podsjetnik. Referiraj se na prvobitnu fakturu i podsjetnik od 30 dana. Zatraži hitnu uplatu. Napomeni mogući uticaj na buduće kreditne uslove. CC Controller.\\n\\nSvi emailovi moraju biti na BCS jeziku, koristiti formalno obraćanje (Poštovani/a), navesti konkretne brojeve faktura i iznose, identifikovati Hotel Jadran kao pošiljaoca, koristiti EUR valutu (€1.850,00).\\n\\nFormat emaila: HTML sa <p> tagovima. Potpis: Odjeljenje finansija, Hotel Jadran, Budva, Tel: +382 33 XXX XXX, E-mail: finansije@hoteljadran.me\\n\\nOutput JSON format:\\n{\"emails\": [{\"ar_id\": \"AR-2026-0001\", \"client_name\": \"Naziv\", \"client_email\": \"email\", \"subject\": \"Subject BCS\", \"body\": \"HTML body BCS\", \"tier\": 60, \"cc_controller\": true, \"cc_gm\": false}]}`;\n\nconst userPrompt = `Dunning tier: ${tier}\\nDanašnji datum: ${today}\\nHotel: Hotel Jadran, Budva, Crna Gora\\nController: Zoran Radonjić (zoran@hoteljadran.me)\\n\\nDospjeli računi koji zahtijevaju opomenu nivoa ${tier}:\\n\\n${JSON.stringify(accounts, null, 2)}\\n\\nSastavi odgovarajući email za svaki račun.`;\n\nreturn [{ json: { requestBody: { model: 'kimi-k2.5', max_tokens: 4000, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] } } }];"
+      },
+      "id": "51fbf701-1312-4500-86f8-7f874b1c0106",
+      "name": "Code - Build Kimi Input (Tier 60)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "f894b2c9-a116-47ed-9af0-c5a3cda95850",
+      "name": "HTTP - Kimi Prompt 14 (Tier 60)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        512
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst content = response.choices[0].message.content;\nconst parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\nconst agingData = $('Code - Calculate Aging').first().json;\n\nreturn parsed.emails.map(email => ({\n  json: {\n    to: email.client_email,\n    subject: email.subject,\n    body: email.body,\n    cc: 'zoran@hoteljadran.me',\n    ar_id: email.ar_id,\n    client_name: email.client_name,\n    airtable_record_id: agingData.recordMap[email.ar_id],\n    tier: 60,\n    flagField: 'alert_60_sent',\n    eventType: 'AR_REMINDER_60_SENT'\n  }\n}));"
+      },
+      "id": "8b7e683c-4c4c-45ed-9d17-e7ab855435ec",
+      "name": "Code - Parse Emails (Tier 60)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n1815764@gmail.com",
+        "toEmail": "n1815764@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.body }}",
+        "options": {
+          "ccEmail": "={{ $json.cc }}",
+          "replyTo": "finansije@hoteljadran.me"
+        }
+      },
+      "id": "15ca5d03-83e3-4521-9bdd-aafc1806c09c",
+      "name": "Gmail - Send 60-Day Follow-ups",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        880,
+        512
+      ],
+      "webhookId": "837fc875-041c-4394-b1a1-fd67472d6105",
+      "credentials": {
+        "smtp": {
+          "id": "gMeJAzEnruR2Zuau",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblWg64KRT2VKycZt",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "alert_60_sent": true,
+            "last_contact_date": "={{ new Date().toISOString().split('T')[0] }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "744f7c4f-33fd-42cc-aa82-187064593959",
+      "name": "Airtable - Set alert_60_sent",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1104,
+        512
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl4pTUUujvn59G7b",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reference_id": "={{ $json.ar_id }}",
+            "event_type": "AR_REMINDER_60_SENT",
+            "actor": "System",
+            "details": "Opomena (60 dana) poslana klijentu {{ $json.client_name }} na {{ $json.to }}. CC: Zoran Radonjić"
+          },
+          "matchingColumns": []
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "95152668-3800-4864-a155-3545e0783519",
+      "name": "Airtable - Audit Trail (60-Day)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1328,
+        512
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c90",
+              "leftValue": "={{ $('Code - Calculate Aging').first().json.has90 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0f9f05a4-c05c-42cc-ac31-90f3d02552bd",
+      "name": "IF - Has 90-Day Alerts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Code - Calculate Aging').first().json;\nconst accounts = data.needs90;\nconst tier = 90;\nconst today = data.todayStr;\n\nconst systemPrompt = `Ti si profesionalni asistent za naplatu potraživanja Hotel Jadran, hotel sa 200 soba u Budvi, Crna Gora.\\n\\nYou MUST respond with valid JSON only. No markdown code blocks, no backticks, no explanation outside the JSON. Raw JSON only.\\n\\nNIVO 90 — Zadnja opomena: Formalan i ozbiljan ton. Navedi da je ovo zadnja opomena prije eskalacije. Referiraj se na svu prethodnu komunikaciju. Naznači da neplaćanje može rezultirati suspenzijom kreditnih uslova, upućivanjem rukovodstvu ili pravnim postupkom. Zadrži profesionalnost. CC Controller + GM.\\n\\nSvi emailovi moraju biti na BCS jeziku, koristiti formalno obraćanje (Poštovani/a), navesti konkretne brojeve faktura i iznose, identifikovati Hotel Jadran kao pošiljaoca, koristiti EUR valutu (€1.850,00).\\n\\nFormat emaila: HTML sa <p> tagovima. Potpis: Odjeljenje finansija, Hotel Jadran, Budva, Tel: +382 33 XXX XXX, E-mail: finansije@hoteljadran.me\\n\\nOutput JSON format:\\n{\"emails\": [{\"ar_id\": \"AR-2026-0001\", \"client_name\": \"Naziv\", \"client_email\": \"email\", \"subject\": \"Subject BCS\", \"body\": \"HTML body BCS\", \"tier\": 90, \"cc_controller\": true, \"cc_gm\": true}]}`;\n\nconst userPrompt = `Dunning tier: ${tier}\\nDanašnji datum: ${today}\\nHotel: Hotel Jadran, Budva, Crna Gora\\nController: Zoran Radonjić (zoran@hoteljadran.me)\\nGM: Martin Cupic (martin@hoteljadran.me)\\n\\nDospjeli računi koji zahtijevaju opomenu nivoa ${tier}:\\n\\n${JSON.stringify(accounts, null, 2)}\\n\\nSastavi odgovarajući email za svaki račun.`;\n\nreturn [{ json: { requestBody: { model: 'kimi-k2.5', max_tokens: 4000, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] } } }];"
+      },
+      "id": "fcc9efe9-0b16-4f9b-83f6-8369c7651d7d",
+      "name": "Code - Build Kimi Input (Tier 90)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "c9f62c28-9661-47e8-ba5f-2835d8ce9872",
+      "name": "HTTP - Kimi Prompt 14 (Tier 90)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        800
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst content = response.choices[0].message.content;\nconst parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\nconst agingData = $('Code - Calculate Aging').first().json;\n\nreturn parsed.emails.map(email => ({\n  json: {\n    to: email.client_email,\n    subject: email.subject,\n    body: email.body,\n    cc: 'zoran@hoteljadran.me, martin@hoteljadran.me',\n    ar_id: email.ar_id,\n    client_name: email.client_name,\n    airtable_record_id: agingData.recordMap[email.ar_id],\n    tier: 90,\n    flagField: 'alert_90_sent',\n    eventType: 'AR_FINAL_NOTICE_SENT'\n  }\n}));"
+      },
+      "id": "cba8d2da-2679-414d-a35b-4089795490be",
+      "name": "Code - Parse Emails (Tier 90)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n1815764@gmail.com",
+        "toEmail": "n1815764@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.body }}",
+        "options": {
+          "ccEmail": "={{ $json.cc }}",
+          "replyTo": "finansije@hoteljadran.me"
+        }
+      },
+      "id": "2f5dbfcb-8a57-4de9-b43c-2d95d0ee0c9c",
+      "name": "Gmail - Send 90-Day Final Notices",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        880,
+        800
+      ],
+      "webhookId": "49c4239e-88b1-4a5c-8098-c6aa800be3f0",
+      "credentials": {
+        "smtp": {
+          "id": "gMeJAzEnruR2Zuau",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblWg64KRT2VKycZt",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "alert_90_sent": true,
+            "last_contact_date": "={{ new Date().toISOString().split('T')[0] }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "d40812b1-a12f-48fe-8695-95bc65c5e9fc",
+      "name": "Airtable - Set alert_90_sent",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1104,
+        800
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl4pTUUujvn59G7b",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reference_id": "={{ $json.ar_id }}",
+            "event_type": "AR_FINAL_NOTICE_SENT",
+            "actor": "System",
+            "details": "Zadnja opomena (90+ dana) poslana klijentu {{ $json.client_name }} na {{ $json.to }}. CC: Zoran Radonjić, Martin Cupic"
+          },
+          "matchingColumns": []
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "e4b4b79c-4306-4857-9bcb-74de3718b5c6",
+      "name": "Airtable - Audit Trail (90-Day)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1328,
+        800
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cOverdue",
+              "leftValue": "={{ $('Code - Calculate Aging').first().json.hasOverdue }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d28396ec-47fc-446c-84de-f00408990747",
+      "name": "IF - Has Overdue Items?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "={{ $('Code - Calculate Aging').first().json.slackMessage }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "mrkdwn": true
+        }
+      },
+      "id": "f9b37fee-79c4-4e36-be50-80158a628bf4",
+      "name": "Slack - Post AR Summary",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        1104
+      ],
+      "webhookId": "c591c012-319e-4537-be77-d6499d038788",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "6679508f-10ce-4903-95bf-c5dfadeb0fde",
+      "name": "NoOp - No 30-Day",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        224,
+        304
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "bac19081-8953-4887-87d2-cbb07fc31dc9",
+      "name": "NoOp - No 60-Day",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        224,
+        608
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "bd12bf86-684a-4a23-bd57-b85ec772b23b",
+      "name": "NoOp - No 90-Day",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        224,
+        912
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "9e89f1b4-59b8-4583-bf59-2a3332b4eb2f",
+      "name": "NoOp - No Overdue",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        224,
+        1200
+      ]
+    }
+  ],
+  "connections": {
+    "Cron - Daily 09:30": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Open AR Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Open AR Records": {
+      "main": [
+        [
+          {
+            "node": "Code - Calculate Aging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Calculate Aging": {
+      "main": [
+        [
+          {
+            "node": "Code - Prep Status Updates",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF - Has 30-Day Alerts?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF - Has 60-Day Alerts?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF - Has 90-Day Alerts?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF - Has Overdue Items?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prep Status Updates": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Update AR Statuses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has 30-Day Alerts?": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Kimi Input (Tier 30)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NoOp - No 30-Day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Kimi Input (Tier 30)": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Kimi Prompt 14 (Tier 30)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Kimi Prompt 14 (Tier 30)": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Emails (Tier 30)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Emails (Tier 30)": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Send 30-Day Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail - Send 30-Day Reminders": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Set alert_30_sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Set alert_30_sent": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail (30-Day)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has 60-Day Alerts?": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Kimi Input (Tier 60)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NoOp - No 60-Day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Kimi Input (Tier 60)": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Kimi Prompt 14 (Tier 60)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Kimi Prompt 14 (Tier 60)": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Emails (Tier 60)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Emails (Tier 60)": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Send 60-Day Follow-ups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail - Send 60-Day Follow-ups": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Set alert_60_sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Set alert_60_sent": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail (60-Day)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has 90-Day Alerts?": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Kimi Input (Tier 90)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NoOp - No 90-Day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Kimi Input (Tier 90)": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Kimi Prompt 14 (Tier 90)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Kimi Prompt 14 (Tier 90)": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Emails (Tier 90)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Emails (Tier 90)": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Send 90-Day Final Notices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail - Send 90-Day Final Notices": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Set alert_90_sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Set alert_90_sent": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail (90-Day)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has Overdue Items?": {
+      "main": [
+        [
+          {
+            "node": "Slack - Post AR Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NoOp - No Overdue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "33ecd03a-6cd6-4d9e-bfa8-0454c1238397",
+  "activeVersionId": null,
+  "versionCounter": 6,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:24:06.759Z",
+      "createdAt": "2026-04-12T00:24:06.759Z",
+      "role": "workflow:editor",
+      "workflowId": "z4uvdGcwrwNdfNL6",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-08T22:29:34.793Z",
+      "createdAt": "2026-04-08T22:29:34.793Z",
+      "role": "workflow:owner",
+      "workflowId": "z4uvdGcwrwNdfNL6",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
+}

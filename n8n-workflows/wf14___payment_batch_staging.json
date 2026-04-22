@@ -1,0 +1,979 @@
+{
+  "updatedAt": "2026-04-11T07:19:56.710Z",
+  "createdAt": "2026-04-10T19:25:58.372Z",
+  "id": "TuO9oMY4D1YkjwOK",
+  "name": "WF14 — Payment Batch Staging",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 14 * * 3"
+            }
+          ]
+        }
+      },
+      "id": "b82fe878-a6da-4019-961a-426a8ebf6132",
+      "name": "Cron - Wednesday 14:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -656,
+        64
+      ],
+      "notes": "Runs every Wednesday at 14:00 CET"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wf14-slack-callback",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "dfed596b-7149-4f67-a3aa-c9c0038886ce",
+      "name": "Webhook - Slack Approval Callback",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        464
+      ],
+      "webhookId": "wf14-slack-callback",
+      "notes": "Receives Slack interactive message callbacks (approve/reject buttons)"
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbliqNuQDtHyWUTey",
+          "mode": "id"
+        },
+        "filterByFormula": "AND({approved} = TRUE(), OR({payment_status} = '', {payment_status} = 'Unbatched'), OR({match_status} = 'Perfect Match', {match_status} = 'Minor'))",
+        "options": {}
+      },
+      "id": "da7da778-c913-4eb1-958b-376724393198",
+      "name": "Airtable - Get Unbatched Approved Invoices",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -448,
+        64
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      },
+      "notes": "Gets invoices from Invoice_Log where approved=true AND payment_status is blank or Unbatched AND match_status is Perfect Match or Minor"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-has-invoices",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cb7d326b-a388-427d-bb9d-0a16db810269",
+      "name": "IF - Has Unbatched Invoices?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -224,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// WF14 — Build Payment Batch\n// Reads all unbatched approved invoices and creates a payment batch\n\nconst invoices = $input.all();\nconst now = new Date();\n\n// Generate batch ID: BATCH-YYYY-WNN\nconst year = now.getFullYear();\nconst startOfYear = new Date(year, 0, 1);\nconst dayOfYear = Math.floor((now - startOfYear) / 86400000);\nconst weekNum = Math.ceil((dayOfYear + startOfYear.getDay() + 1) / 7);\nconst batchId = `BATCH-${year}-W${String(weekNum).padStart(2, '0')}`;\n\n// Due date cutoff: 7 days from now\nconst cutoffDate = new Date(now);\ncutoffDate.setDate(cutoffDate.getDate() + 7);\nconst cutoffStr = cutoffDate.toISOString().split('T')[0];\nconst batchDateStr = now.toISOString().split('T')[0];\n\n// Build invoice records\nconst invoicesJson = [];\nconst vendorSummary = {};\nlet totalAmount = 0;\nlet earlyDiscountTotal = 0;\nconst recordIds = []; // Airtable record IDs for batch update\n\nfor (const inv of invoices) {\n  const f = inv.json.fields || inv.json;\n  const amount = parseFloat(f.invoice_amount || f.total_amount) || 0;\n  totalAmount += amount;\n\n  const record = {\n    invoice_id: f.invoice_id || f.invoice_number || 'N/A',\n    vendor_invoice_number: f.invoice_number || 'N/A',\n    vendor_name: f.seller_name || f.vendor_name || 'Unknown',\n    po_number: f.po_number || '',\n    amount: amount,\n    due_date: f.due_date || f.invoice_date || '',\n    gl_account: f.gl_account || '',\n    match_status: f.match_status?.name || f.match_status || 'Unknown'\n  };\n\n  invoicesJson.push(record);\n  recordIds.push(inv.json.id);\n\n  // Group by vendor\n  const vendorName = record.vendor_name;\n  if (!vendorSummary[vendorName]) {\n    vendorSummary[vendorName] = { invoices: [], total: 0 };\n  }\n  vendorSummary[vendorName].invoices.push(record);\n  vendorSummary[vendorName].total += amount;\n\n  // Check early payment discount\n  if (f.early_discount_eligible && f.early_discount_deadline) {\n    const deadline = new Date(f.early_discount_deadline);\n    if (deadline >= now) {\n      earlyDiscountTotal += parseFloat(f.early_discount_amount) || 0;\n    }\n  }\n}\n\n// Format EUR helper\nconst fmtEur = (n) => `€${n.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;\n\n// Build Slack message\nlet slackMsg = `💳 *BATCH ZA PLAĆANJE — ${batchId}*\\n`;\nslackMsg += `Datum kreiranja: ${now.toLocaleDateString('de-DE')}\\n`;\nslackMsg += `Rok za plaćanje: do ${cutoffDate.toLocaleDateString('de-DE')}\\n\\n`;\nslackMsg += `📋 *PREGLED PO DOBAVLJAČIMA:*\\n━━━━━━━━━━━━━━━━━━━━━━━━\\n`;\n\nfor (const [vendor, data] of Object.entries(vendorSummary)) {\n  slackMsg += `🏢 *${vendor}*\\n`;\n  for (const inv of data.invoices) {\n    const dueShort = inv.due_date ? new Date(inv.due_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) : 'N/A';\n    slackMsg += `   • ${inv.vendor_invoice_number} (${inv.po_number || 'bez PO'}) — ${fmtEur(inv.amount)} — rok: ${dueShort}\\n`;\n  }\n  slackMsg += `   Ukupno ${vendor}: ${fmtEur(data.total)}\\n\\n`;\n}\n\nslackMsg += `━━━━━━━━━━━━━━━━━━━━━━━━\\n`;\nslackMsg += `*UKUPNO ZA PLAĆANJE: ${fmtEur(totalAmount)}*\\n`;\nslackMsg += `Broj faktura: ${invoices.length} | Broj dobavljača: ${Object.keys(vendorSummary).length}`;\n\nif (earlyDiscountTotal > 0) {\n  slackMsg += `\\n\\n💡 _Moguća ušteda za rano plaćanje: ${fmtEur(earlyDiscountTotal)}_`;\n}\n\n// Build payment instruction email HTML\nlet emailHtml = `<div style=\"font-family: Arial, sans-serif; max-width: 700px;\">`;\nemailHtml += `<div style=\"background: #1a1a2e; color: white; padding: 20px;\"><h2 style=\"margin:0;\">Hotel Jadran — Nalog za plaćanje</h2>`;\nemailHtml += `<p style=\"margin:5px 0 0;\">Batch: ${batchId} | Datum: ${now.toLocaleDateString('de-DE')}</p></div>`;\nemailHtml += `<table style=\"width:100%; border-collapse:collapse; margin-top:20px;\"><thead><tr style=\"background:#f0f0f0;\">`;\nemailHtml += `<th style=\"padding:10px; text-align:left;\">Dobavljač</th>`;\nemailHtml += `<th style=\"padding:10px; text-align:left;\">Br. fakture</th>`;\nemailHtml += `<th style=\"padding:10px; text-align:left;\">PO</th>`;\nemailHtml += `<th style=\"padding:10px; text-align:right;\">Iznos (EUR)</th>`;\nemailHtml += `</tr></thead><tbody>`;\n\nfor (const inv of invoicesJson) {\n  emailHtml += `<tr><td style=\"padding:8px; border-bottom:1px solid #eee;\">${inv.vendor_name}</td>`;\n  emailHtml += `<td style=\"padding:8px; border-bottom:1px solid #eee;\">${inv.vendor_invoice_number}</td>`;\n  emailHtml += `<td style=\"padding:8px; border-bottom:1px solid #eee;\">${inv.po_number || '-'}</td>`;\n  emailHtml += `<td style=\"padding:8px; border-bottom:1px solid #eee; text-align:right;\">${fmtEur(inv.amount)}</td></tr>`;\n}\n\nemailHtml += `</tbody><tfoot><tr style=\"background:#1a1a2e; color:white; font-weight:bold;\">`;\nemailHtml += `<td colspan=\"3\" style=\"padding:10px;\">UKUPNO ZA PLAĆANJE</td>`;\nemailHtml += `<td style=\"padding:10px; text-align:right;\">${fmtEur(totalAmount)}</td>`;\nemailHtml += `</tr></tfoot></table>`;\nemailHtml += `<p style=\"margin-top:20px; color:#666; font-size:12px;\">Ovaj nalog je automatski generisan. Batch ID: ${batchId}</p></div>`;\n\nreturn [{\n  json: {\n    batchId,\n    batchDate: batchDateStr,\n    dueDateCutoff: cutoffStr,\n    totalAmount,\n    invoiceCount: invoices.length,\n    invoicesJson: JSON.stringify(invoicesJson),\n    slackMessage: slackMsg,\n    emailHtml,\n    earlyDiscountTotal,\n    recordIds,\n    vendorCount: Object.keys(vendorSummary).length\n  }\n}];"
+      },
+      "id": "57da0437-bf3c-4d1c-8a1d-6b7106542433",
+      "name": "Code - Build Payment Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblKFEvMbOobm9Y9X",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "batch_id": "={{ $json.batchId }}",
+            "batch_date": "={{ $json.batchDate }}",
+            "due_date_cutoff": "={{ $json.dueDateCutoff }}",
+            "total_amount": "={{ $json.totalAmount }}",
+            "invoice_count": "={{ $json.invoiceCount }}",
+            "invoices_json": "={{ $json.invoicesJson }}",
+            "status": "Pending Approval"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "ba6ddf88-8e30-4299-820e-9aa0ea4bc79e",
+      "name": "Airtable - Create Payment_Batch Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Update all invoice records: set payment_status = 'Batched' and payment_batch_id\nconst batchData = $('Code - Build Payment Batch').first().json;\nconst batchId = batchData.batchId;\nconst recordIds = batchData.recordIds;\n\n// Output one item per invoice record to update\nconst updates = recordIds.map(id => ({\n  json: {\n    recordId: id,\n    batchId: batchId\n  }\n}));\n\nreturn updates;"
+      },
+      "id": "d1ae8031-b37f-4538-aab4-815447cf7d3a",
+      "name": "Code - Prepare Invoice Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbliqNuQDtHyWUTey",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "payment_status": "Batched",
+            "payment_batch_id": "={{ $json.batchId }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "d4dadf66-5732-4e9f-a3cd-30ade1bbe1c6",
+      "name": "Airtable - Mark Invoices as Batched",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        672,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "={{ $('Code - Build Payment Batch').first().json.slackMessage }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "mrkdwn": true
+        }
+      },
+      "id": "5535804f-6584-4a10-ac07-4ccedbbf6b54",
+      "name": "Slack - Send Approval Message",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        0
+      ],
+      "webhookId": "c1b65b54-ad07-498b-b3aa-1f814980f77b",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl4pTUUujvn59G7b",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reference_id": "={{ $('Code - Build Payment Batch').first().json.batchId }}",
+            "event_type": "PAYMENT_BATCH_CREATED",
+            "actor": "System",
+            "details": "Kreiran batch za plaćanje: {{ $('Code - Build Payment Batch').first().json.invoiceCount }} faktura, ukupno €{{ $('Code - Build Payment Batch').first().json.totalAmount.toFixed(2) }}, {{ $('Code - Build Payment Batch').first().json.vendorCount }} dobavljača",
+            "amount": "={{ $('Code - Build Payment Batch').first().json.totalAmount }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "45a4bb49-e5fe-4632-b457-d8c3d6927a84",
+      "name": "Airtable - Audit Trail (Batch Created)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1104,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Slack interactive callback payload\nconst body = $input.first().json.body;\n\n// Slack sends interactive payloads as application/x-www-form-urlencoded with a 'payload' field\nlet payload;\ntry {\n  payload = typeof body.payload === 'string' ? JSON.parse(body.payload) : body;\n} catch (e) {\n  payload = body;\n}\n\nconst action = payload.actions?.[0]?.value || '';\nconst userName = payload.user?.name || payload.user?.username || 'Unknown';\nconst responseUrl = payload.response_url || '';\n\n// Parse action: \"approve_BATCH-2026-W14\" or \"reject_BATCH-2026-W14\"\nconst parts = action.split('_');\nconst decision = parts[0]; // 'approve' or 'reject'\nconst batchId = action.replace(/^(approve|reject)_/, ''); // everything after first underscore group\n\nreturn [{\n  json: {\n    decision,\n    batchId,\n    userName,\n    responseUrl,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "5f631319-d02a-4cdd-8c75-730c19ef6ea3",
+      "name": "Code - Parse Slack Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=Primljeno — obrađujem...",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "44748803-c3cf-4339-b489-32f29cc2e871",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -224,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-approve",
+              "leftValue": "={{ $('Code - Parse Slack Callback').first().json.decision }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d97034b0-b3db-487f-8f8e-85ef06848388",
+      "name": "IF - Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblKFEvMbOobm9Y9X",
+          "mode": "id"
+        },
+        "filterByFormula": "={batch_id} = '{{ $('Code - Parse Slack Callback').first().json.batchId }}'",
+        "options": {}
+      },
+      "id": "cf32b428-eaec-4846-a138-ecf81c394226",
+      "name": "Airtable - Get Batch (Approve Path)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        368
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblKFEvMbOobm9Y9X",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "Approved",
+            "approved_by": "={{ $('Code - Parse Slack Callback').first().json.userName }}",
+            "approved_date": "={{ new Date().toISOString().split('T')[0] }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "23a637be-51d6-4f60-8c4e-e37daace529d",
+      "name": "Airtable - Update Batch → Approved",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        448,
+        368
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build payment instruction email and extract invoice record IDs for status update\nconst batchRecord = $('Airtable - Get Batch (Approve Path)').first().json;\nconst callbackData = $('Code - Parse Slack Callback').first().json;\nconst f = batchRecord.fields || batchRecord;\n\nconst batchId = f.batch_id;\nconst totalAmount = parseFloat(f.total_amount) || 0;\nconst invoicesJson = JSON.parse(f.invoices_json || '[]');\n\nconst fmtEur = (n) => `€${n.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;\n\n// Build email HTML\nlet emailHtml = `<div style=\"font-family: Arial, sans-serif; max-width: 700px;\">`;\nemailHtml += `<div style=\"background: #1a1a2e; color: white; padding: 20px;\"><h2 style=\"margin:0;\">Hotel Jadran — Nalog za plaćanje</h2>`;\nemailHtml += `<p style=\"margin:5px 0 0;\">Batch: ${batchId} | Odobrio: ${callbackData.userName} | Datum: ${new Date().toLocaleDateString('de-DE')}</p></div>`;\nemailHtml += `<table style=\"width:100%; border-collapse:collapse; margin-top:20px;\"><thead><tr style=\"background:#f0f0f0;\">`;\nemailHtml += `<th style=\"padding:10px; text-align:left;\">Dobavljač</th>`;\nemailHtml += `<th style=\"padding:10px; text-align:left;\">Br. fakture</th>`;\nemailHtml += `<th style=\"padding:10px; text-align:left;\">PO</th>`;\nemailHtml += `<th style=\"padding:10px; text-align:right;\">Iznos (EUR)</th>`;\nemailHtml += `</tr></thead><tbody>`;\n\nfor (const inv of invoicesJson) {\n  emailHtml += `<tr><td style=\"padding:8px; border-bottom:1px solid #eee;\">${inv.vendor_name}</td>`;\n  emailHtml += `<td style=\"padding:8px; border-bottom:1px solid #eee;\">${inv.vendor_invoice_number}</td>`;\n  emailHtml += `<td style=\"padding:8px; border-bottom:1px solid #eee;\">${inv.po_number || '-'}</td>`;\n  emailHtml += `<td style=\"padding:8px; border-bottom:1px solid #eee; text-align:right;\">${fmtEur(inv.amount)}</td></tr>`;\n}\n\nemailHtml += `</tbody><tfoot><tr style=\"background:#1a1a2e; color:white; font-weight:bold;\">`;\nemailHtml += `<td colspan=\"3\" style=\"padding:10px;\">UKUPNO ZA PLAĆANJE</td>`;\nemailHtml += `<td style=\"padding:10px; text-align:right;\">${fmtEur(totalAmount)}</td>`;\nemailHtml += `</tr></tfoot></table>`;\nemailHtml += `<p style=\"margin-top:20px; color:#666; font-size:12px;\">Ovaj nalog je automatski generisan. Batch ID: ${batchId}</p></div>`;\n\nreturn [{\n  json: {\n    batchId,\n    totalAmount,\n    invoiceCount: invoicesJson.length,\n    emailHtml,\n    emailSubject: `Hotel Jadran — Nalog za plaćanje: ${batchId}`,\n    approvedBy: callbackData.userName,\n    responseUrl: callbackData.responseUrl\n  }\n}];"
+      },
+      "id": "3373a297-061a-43fe-95fc-c02d678ae2e0",
+      "name": "Code - Build Payment Instruction Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n1815764@gmail.com",
+        "toEmail": "n1815764@gmail.com",
+        "subject": "={{ $json.emailSubject }}",
+        "html": "={{ $json.emailHtml }}",
+        "options": {
+          "replyTo": "n1815764@gmail.com"
+        }
+      },
+      "id": "ad727356-b9a9-4d23-873e-35dd590b6ce0",
+      "name": "Gmail - Send Payment Instruction",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        880,
+        368
+      ],
+      "webhookId": "db1a53e4-0459-4a5b-afdd-e0a1e48d389a",
+      "credentials": {
+        "smtp": {
+          "id": "gMeJAzEnruR2Zuau",
+          "name": "SMTP account"
+        }
+      },
+      "notes": "Sends HTML payment instruction email to Zoran. Update SMTP credential ID to match your n8n setup."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Code - Build Payment Instruction Email').first().json.responseUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ replace_original: true, text: '✅ Odobreno od ' + $('Code - Build Payment Instruction Email').first().json.approvedBy + ' — ' + new Date().toLocaleString('de-DE', { timeZone: 'Europe/Belgrade' }) + '\\nBatch: ' + $('Code - Build Payment Instruction Email').first().json.batchId + ' | €' + $('Code - Build Payment Instruction Email').first().json.totalAmount.toFixed(2) + '\\nNalog za plaćanje poslan na email.' }) }}",
+        "options": {}
+      },
+      "id": "fe4130cc-8396-4e3b-b066-8a9cdda026a0",
+      "name": "HTTP - Update Slack Message (Approved)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl4pTUUujvn59G7b",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reference_id": "={{ $('Code - Build Payment Instruction Email').first().json.batchId }}",
+            "event_type": "PAYMENT_BATCH_APPROVED",
+            "actor": "={{ $('Code - Build Payment Instruction Email').first().json.approvedBy }}",
+            "details": "Batch odobren. Nalog za plaćanje poslan na email. {{ $('Code - Build Payment Instruction Email').first().json.invoiceCount }} faktura.",
+            "amount": "={{ $('Code - Build Payment Instruction Email').first().json.totalAmount }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "08456b1d-7c64-4668-b5eb-edfa03667b00",
+      "name": "Airtable - Audit Trail (Batch Approved)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1328,
+        368
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblKFEvMbOobm9Y9X",
+          "mode": "id"
+        },
+        "filterByFormula": "={batch_id} = '{{ $('Code - Parse Slack Callback').first().json.batchId }}'",
+        "options": {}
+      },
+      "id": "d06cb365-40fb-44ee-af20-2762af374057",
+      "name": "Airtable - Get Batch (Reject Path)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        672
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblKFEvMbOobm9Y9X",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "Rejected"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "d720868b-3e7a-4012-932c-29eda7bf0817",
+      "name": "Airtable - Update Batch → Rejected",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        448,
+        672
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get invoices from the rejected batch and prepare to unbatch them\nconst batchRecord = $('Airtable - Get Batch (Reject Path)').first().json;\nconst f = batchRecord.fields || batchRecord;\nconst invoicesJson = JSON.parse(f.invoices_json || '[]');\nconst callbackData = $('Code - Parse Slack Callback').first().json;\n\n// We need to find invoice records by invoice_number and clear their batch assignment\n// Return info needed for downstream nodes\nreturn [{\n  json: {\n    batchId: f.batch_id,\n    totalAmount: parseFloat(f.total_amount) || 0,\n    invoiceCount: invoicesJson.length,\n    rejectedBy: callbackData.userName,\n    responseUrl: callbackData.responseUrl\n  }\n}];"
+      },
+      "id": "1e295aa5-d556-4593-b126-ce88a80ad9ab",
+      "name": "Code - Prepare Rejection Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.responseUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ replace_original: true, text: '❌ Odbijeno od ' + $json.rejectedBy + ' — ' + new Date().toLocaleString('de-DE', { timeZone: 'Europe/Belgrade' }) + '\\nBatch: ' + $json.batchId + ' | €' + $json.totalAmount.toFixed(2) + '\\nFakture vraćene u status Unbatched.' }) }}",
+        "options": {}
+      },
+      "id": "8158802b-c0dd-4601-9101-bfd34dc48951",
+      "name": "HTTP - Update Slack Message (Rejected)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl4pTUUujvn59G7b",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reference_id": "={{ $json.batchId }}",
+            "event_type": "PAYMENT_BATCH_REJECTED",
+            "actor": "={{ $json.rejectedBy }}",
+            "details": "Batch odbijen. {{ $json.invoiceCount }} faktura vraćeno u status Unbatched.",
+            "amount": "={{ $json.totalAmount }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "6b86ac48-93a4-468f-ac0b-967ead85ed65",
+      "name": "Airtable - Audit Trail (Batch Rejected)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1104,
+        672
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "945d772b-6c1a-49db-b523-c5ecd43c9ab6",
+      "name": "No Operation - No Invoices",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        0,
+        192
+      ],
+      "notes": "No unbatched invoices found — workflow ends gracefully"
+    }
+  ],
+  "connections": {
+    "Cron - Wednesday 14:00": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Unbatched Approved Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Unbatched Approved Invoices": {
+      "main": [
+        [
+          {
+            "node": "IF - Has Unbatched Invoices?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has Unbatched Invoices?": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Payment Batch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation - No Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Payment Batch": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Create Payment_Batch Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Create Payment_Batch Record": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Invoice Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Invoice Updates": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Mark Invoices as Batched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Mark Invoices as Batched": {
+      "main": [
+        [
+          {
+            "node": "Slack - Send Approval Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Send Approval Message": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail (Batch Created)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Slack Approval Callback": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Slack Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Slack Callback": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "IF - Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Approved?": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Batch (Approve Path)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Airtable - Get Batch (Reject Path)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Batch (Approve Path)": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Update Batch → Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Update Batch → Approved": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Payment Instruction Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Payment Instruction Email": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Send Payment Instruction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail - Send Payment Instruction": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Update Slack Message (Approved)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Update Slack Message (Approved)": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail (Batch Approved)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Batch (Reject Path)": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Update Batch → Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Update Batch → Rejected": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Rejection Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Rejection Data": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Update Slack Message (Rejected)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Update Slack Message (Rejected)": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail (Batch Rejected)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "67fb8e55-4646-4d2a-acc3-33e47a1b2b06",
+  "activeVersionId": null,
+  "versionCounter": 6,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:24:02.174Z",
+      "createdAt": "2026-04-12T00:24:02.174Z",
+      "role": "workflow:editor",
+      "workflowId": "TuO9oMY4D1YkjwOK",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:25:58.374Z",
+      "createdAt": "2026-04-10T19:25:58.374Z",
+      "role": "workflow:owner",
+      "workflowId": "TuO9oMY4D1YkjwOK",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
+}

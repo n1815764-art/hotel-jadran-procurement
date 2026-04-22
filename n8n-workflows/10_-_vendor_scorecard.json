@@ -1,0 +1,306 @@
+{
+  "updatedAt": "2026-04-12T01:37:10.656Z",
+  "createdAt": "2026-04-10T19:34:08.475Z",
+  "id": "9O6eEK9HQLSk1eTk",
+  "name": "10 - Vendor Scorecard",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "855dd181-f4e7-4bd9-8414-b87eeb1efb5a",
+      "name": "Cron - 1st of Month 8AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        192
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "57fbcdf4-744f-4cf8-a614-346a579b159d",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Vendors",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "7bc7f1c3-1293-485f-954d-6635444d8430",
+      "name": "Airtable - Get Vendors",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all vendors and prepare for scoring\nconst resp = $input.first().json;\nconst vendors = resp.records || [];\n\nif (vendors.length === 0) return [{ json: { no_vendors: true } }];\n\nconst results = vendors.filter(v => v.fields.Name).map(v => ({\n  json: {\n    vendor_name: v.fields.Name,\n    vendor_email: v.fields['Contact Email'] || '',\n    vendor_category: v.fields.Category || 'General',\n    vendor_record_id: v.id,\n    period: new Date().toISOString().substring(0,7)\n  }\n}));\n\nreturn results;"
+      },
+      "id": "18f0a90e-6856-4742-81c3-b3de7d7e71e4",
+      "name": "Code - Split Vendors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Look up PO and receiving data for this vendor\nconst vendor = $input.first().json;\n\n// We'll pass the vendor context to the AI with whatever data we have\nreturn [{ json: {\n  ...vendor,\n  total_pos: 'See PO_Log',\n  on_time_pct: 'N/A - no late_delivery tracking yet',\n  accuracy_pct: 'N/A - calculate from receiving data',\n  quality_complaints: 0,\n  total_spend: 'See PO_Log totals'\n} }];"
+      },
+      "id": "548f9d53-47ad-4bcf-8f65-d067b752bdc9",
+      "name": "Code - Vendor Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOONSHOT_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 500, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are a hotel procurement AI generating monthly vendor scorecards. Score 1-10 on: Delivery, Accuracy, Quality, Pricing, Responsiveness. Weighted overall: Delivery 30%, Accuracy 25%, Quality 20%, Pricing 15%, Responsiveness 10%. Recommendation: MAINTAIN (7+), WATCH (5-7), REPLACE (<5). Note: limited data available for this period — score conservatively. Respond ONLY in valid JSON. No markdown, no backticks.' }, { role: 'user', content: 'Score vendor for period ' + $json.period + ':\\nVendor: ' + $json.vendor_name + '\\nCategory: ' + $json.vendor_category + '\\n\\nNote: This is an initial scorecard with limited tracking data. Score based on available information and note where data is insufficient.\\n\\nRespond: {\"vendor\": \"...\", \"overall_score\": N, \"recommendation\": \"MAINTAIN|WATCH|REPLACE\", \"scores\": {\"delivery\": N, \"accuracy\": N, \"quality\": N, \"pricing\": N, \"responsiveness\": N}, \"summary\": \"...\", \"action_items\": [...]}' }] }) }}",
+        "options": {}
+      },
+      "id": "9c889303-1729-4b4b-bd99-00759597c589",
+      "name": "AI - Score Vendor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        192
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nconst parsed = JSON.parse(r.choices[0].message.content.replace(/```json|```/g, '').trim());\nconst prev = $('Code - Vendor Context').first().json;\nreturn [{ json: { ...parsed, ...prev } }];"
+      },
+      "id": "8d2274e8-0ab5-433b-ad1e-953ae695508d",
+      "name": "Code - Parse Scorecard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=📊 *Vendor Scorecard* — {{ $json.vendor_name }}\n\nScore: {{ $json.overall_score }}/10 | Recommendation: {{ $json.recommendation }}\n{{ $json.summary }}",
+        "otherOptions": {}
+      },
+      "id": "69460fcc-da62-45b5-ab55-cf882a0a8d94",
+      "name": "Slack - Post Scorecard",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1344,
+        192
+      ],
+      "webhookId": "2609782c-5d0a-4262-9046-7c0d9bb98a87",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron - 1st of Month 8AM": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Vendors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Get Vendors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Get Vendors": {
+      "main": [
+        [
+          {
+            "node": "Code - Split Vendors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Split Vendors": {
+      "main": [
+        [
+          {
+            "node": "Code - Vendor Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Vendor Context": {
+      "main": [
+        [
+          {
+            "node": "AI - Score Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Score Vendor": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Scorecard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Scorecard": {
+      "main": [
+        [
+          {
+            "node": "Slack - Post Scorecard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "3f1eb96a-0cf2-46e5-bf45-b213faadd0d8",
+  "activeVersionId": null,
+  "versionCounter": 5,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:23:32.202Z",
+      "createdAt": "2026-04-12T00:23:32.202Z",
+      "role": "workflow:editor",
+      "workflowId": "9O6eEK9HQLSk1eTk",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:34:08.477Z",
+      "createdAt": "2026-04-10T19:34:08.477Z",
+      "role": "workflow:owner",
+      "workflowId": "9O6eEK9HQLSk1eTk",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": null
+}

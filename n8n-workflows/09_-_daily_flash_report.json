@@ -1,0 +1,475 @@
+{
+  "updatedAt": "2026-04-12T01:36:59.062Z",
+  "createdAt": "2026-04-10T19:34:19.247Z",
+  "id": "mb7Dt3eEUFi6ppM4",
+  "name": "09 - Daily Flash Report",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "501fdf2e-eef5-4146-8d70-b91ea1edc8b0",
+      "name": "Cron - 7AM Daily Report",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        208
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "255581c4-8c2d-4146-8057-9a072193a87d",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "cfcde353-e1ee-4751-9136-fdf2c369aa76",
+      "name": "Airtable - POs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        80
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Invoice%20Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "9d02faa1-8440-4a40-a134-4fbc580c058e",
+      "name": "Airtable - Invoices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        208
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Inventory%20with%20Par%20Levels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "799b68d3-90d5-4fe6-94de-92c70d52120f",
+      "name": "Airtable - Inventory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        336
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Occupancy%20Data",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "6613000f-1261-40f1-a91c-35f8b02d8360",
+      "name": "Airtable - Occupancy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        464
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20GL%20Account%20Mapping",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "0e952ce0-6d55-445e-b730-0619c234b29b",
+      "name": "Airtable - Budgets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        592
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const pos = $('Airtable - POs').first().json.records || [];\nconst invoices = $('Airtable - Invoices').first().json.records || [];\nconst inventory = $('Airtable - Inventory').first().json.records || [];\nconst occ = $('Airtable - Occupancy').first().json.records || [];\nconst budgets = $('Airtable - Budgets').first().json.records || [];\n\nconst poCount = pos.length;\nconst poTotal = pos.reduce((s, r) => s + (r.fields.total_amount || 0), 0);\nconst invCount = invoices.length;\nconst matched = invoices.filter(r => ['PERFECT_MATCH','MINOR_DISCREPANCY'].includes(r.fields.match_status?.name || r.fields.match_status)).length;\nconst matchRate = invCount > 0 ? Math.round(matched/invCount*100) : 0;\nconst belowPar = inventory.filter(r => (r.fields['Current Stock'] || 0) <= (r.fields['Reorder Point'] || 0)).length;\nconst negStock = inventory.filter(r => (r.fields['Current Stock'] || 0) < 0);\nconst negStockStr = negStock.map(r => r.fields.Name + ' (' + r.fields['Current Stock'] + ')').join(', ') || 'None';\nconst avgOcc = occ.length > 0 ? Math.round(occ.reduce((s,r) => s + ((r.fields['Occupancy %'] || 0) * 100), 0) / occ.length) : 75;\n\nreturn [{ json: {\n  date: new Date().toISOString().split('T')[0],\n  property_name: 'Hotel Jadran',\n  po_count: poCount, po_total: poTotal.toFixed(2),\n  invoices_received: invCount, invoices_matched: matched, match_rate: matchRate,\n  invoice_exceptions: invCount - matched,\n  disputes_sent: invoices.filter(r => (r.fields.match_status?.name || r.fields.match_status) === 'DISPUTE_REQUIRED').length,\n  below_par_count: belowPar,\n  negative_stock_items: negStockStr,\n  avg_occupancy: avgOcc,\n  pending_approvals: pos.filter(r => (r.fields.status?.name || r.fields.status) === 'Open').length\n} }];"
+      },
+      "id": "d9c4bcd3-9360-4eb1-8042-680066055c84",
+      "name": "Code - Aggregate Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOONSHOT_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 800, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are the AI Procurement Manager for Hotel Jadran. Generate a concise daily flash report (<200 words). Format:\\n1. ORDERS: PO count + total\\n2. INVOICES: count, match rate, exceptions\\n3. INVENTORY: below par, negative stock alerts\\n4. ALERTS: anything needing attention\\n5. ACTION NEEDED: items requiring Controller/GM decision\\n\\nRespond in plain text only. No JSON, no markdown. This goes directly into an email body.' }, { role: 'user', content: 'Generate Daily Flash Report for ' + $json.date + ':\\n\\nPOs: ' + $json.po_count + ' totaling €' + $json.po_total + '\\nInvoices: ' + $json.invoices_received + ' received, ' + $json.match_rate + '% auto-matched, ' + $json.invoice_exceptions + ' exceptions, ' + $json.disputes_sent + ' disputes\\nInventory: ' + $json.below_par_count + ' items below par\\nNegative Stock: ' + $json.negative_stock_items + '\\nOccupancy: ' + $json.avg_occupancy + '%\\nPending Approvals: ' + $json.pending_approvals }] }) }}",
+        "options": {}
+      },
+      "id": "c63a3bb5-a4d1-433b-8df3-0cdade03889f",
+      "name": "AI - Generate Flash Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        736,
+        336
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nreturn [{ json: { report_text: response.choices[0].message.content } }];"
+      },
+      "id": "c8e70307-8241-4cc7-aa00-543cc9d3d158",
+      "name": "Code - Extract Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "={{ $json.report_text }}",
+        "otherOptions": {}
+      },
+      "id": "1d558e8d-84ec-4f7b-9090-f9e001715010",
+      "name": "Slack - Post Report",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1184,
+        336
+      ],
+      "webhookId": "e35d4f21-079a-4b89-8b14-6ec1258646e9",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const auditBody = JSON.stringify({ records: [{ fields: { reference_id: 'FLASH-' + new Date().toISOString().split('T')[0], event_type: 'Approved', actor: 'System', details: 'Daily flash report generated and distributed' } }] });\nreturn [{ json: { audit_body: auditBody } }];"
+      },
+      "id": "963dc2db-22a3-46c7-a625-8723f379bf3b",
+      "name": "Code - Prep Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.audit_body }}",
+        "options": {}
+      },
+      "id": "209263f9-a37a-44a7-ab8e-0dc0b3cfdc4a",
+      "name": "Airtable - Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1632,
+        336
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron - 7AM Daily Report": {
+      "main": [
+        [
+          {
+            "node": "Airtable - POs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Airtable - POs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Aggregate Data": {
+      "main": [
+        [
+          {
+            "node": "AI - Generate Flash Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Generate Flash Report": {
+      "main": [
+        [
+          {
+            "node": "Code - Extract Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Extract Report": {
+      "main": [
+        [
+          {
+            "node": "Slack - Post Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Post Report": {
+      "main": [
+        [
+          {
+            "node": "Code - Prep Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prep Audit": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - POs": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Invoices": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Inventory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Inventory": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Occupancy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Occupancy": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Budgets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Budgets": {
+      "main": [
+        [
+          {
+            "node": "Code - Aggregate Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "8cf1550e-3c26-43e6-8c1f-3cae1bc2fe0b",
+  "activeVersionId": null,
+  "versionCounter": 8,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:23:23.185Z",
+      "createdAt": "2026-04-12T00:23:23.185Z",
+      "role": "workflow:editor",
+      "workflowId": "mb7Dt3eEUFi6ppM4",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:34:19.251Z",
+      "createdAt": "2026-04-10T19:34:19.251Z",
+      "role": "workflow:owner",
+      "workflowId": "mb7Dt3eEUFi6ppM4",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": null
+}

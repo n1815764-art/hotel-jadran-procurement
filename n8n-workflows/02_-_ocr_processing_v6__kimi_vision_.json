@@ -1,0 +1,1263 @@
+{
+  "updatedAt": "2026-04-12T00:56:04.334Z",
+  "createdAt": "2026-04-10T19:35:44.964Z",
+  "id": "NCdhMBBTNLNUKpCe",
+  "name": "02 - OCR Processing V6 (Kimi Vision)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2608,
+        672
+      ],
+      "id": "dc84e9f8-1f75-499b-8d19-4165af96e9d0",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare request body for Kimi K2.5 Vision OCR\n// File content comes from the \"Get File Content\" HTTP Request node\nconst inputData = $input.first().json;\nconst fileContent = inputData.data || inputData.content || (typeof inputData === 'string' ? inputData : JSON.stringify(inputData));\n\n// Get filename from the original trigger node\nconst triggerData = $(\"When Executed by Another Workflow\").first();\nconst filename = triggerData.binary?.file?.fileName || 'invoice.pdf';\n\nconst systemPrompt = \"Ti si AI asistent za ekstrakciju podataka sa faktura hotela Heritage Grand Hotel Perast (Jadran d.o.o. Kotor).\\n\\nPrima\\u0161 tekst fakture i vra\\u0107a\\u0161 strukturirane podatke u JSON formatu.\\n\\nPRAVILA:\\n- Odgovori SAMO validnim JSON-om. Bez markdown blokova, bez backtick-ova, bez obja\\u0161njenja.\\n- Svi broj\\u010dani iznosi kao decimalni brojevi (NE stringovi). Koristi ta\\u010dku kao decimalni separator: 46.08 NE \\\"46,08\\\".\\n- Pa\\u017eljivo sa hiljadama: \\\"3.150,00\\\" i \\\"3,150.00\\\" oba zna\\u010de 3150.00. \\\"1.270,50\\\" zna\\u010di 1270.50.\\n- Datumi u formatu YYYY-MM-DD.\\n- Ako polje ne postoji na fakturi, koristi null.\\n- PDV/porez kao procenat (21.0 za 21%, NE 0.21).\\n- Rabat/popust kao procenat (28.0 za 28%, NE 0.28).\\n\\nTIP DOKUMENTA (KRITI\\u010cNO):\\n- Ako naslov sadr\\u017ei \\\"Ra\\u010dun\\\" / \\\"Faktura\\\" / \\\"Ra\\u010dun-Otpremnica\\\" \\u2192 document_type = \\\"INVOICE\\\", svi iznosi POZITIVNI.\\n- Ako naslov sadr\\u017ei \\\"Povrat kupca\\\" / \\\"Knji\\u017eno odobrenje\\\" / \\\"Storno\\\" \\u2192 document_type = \\\"CREDIT_NOTE\\\", svi iznosi NEGATIVNI (zadr\\u017ei minus znakove kako su prikazani).\\n- NE pretvaraj negativne u pozitivne za credit note. Negativan total_amount je o\\u010dekivan.\\n\\nFINANSIJSKA POLJA \\u2014 KRITI\\u010cNA PRAVILA:\\n\\n1. total_amount = KONA\\u010cAN iznos koji se pla\\u0107a.\\n   Mapira se sa: \\\"Za pla\\u0107anje\\\", \\\"Za pla\\u0107anje EUR\\\", \\\"SVEGA\\\", \\\"UKUPNO\\\" (na dnu), \\\"Ukupno odobreno\\\" (za credit note).\\n   NE mapira se sa: \\\"Ukupno\\\" u sredini fakture (to je \\u010desto bruto pre rabata).\\n\\n2. tax_amount = ukupan iznos PDV-a u EUR.\\n   Ako faktura ima vi\\u0161e poreznih stopa (npr. 21% i 7%), saberi sve PDV iznose iz \\\"Specifikacija poreza\\\" / \\\"Rekapitulacija PDV\\\".\\n\\n3. subtotal = POREZNA OSNOVICA POSLE RABATA. Mora va\\u017eiti: subtotal + tax_amount = total_amount (tolerancija \\u00b10.05).\\n   - Ako postoji red \\\"Osnovica\\\" u \\\"Specifikacija poreza\\\" \\u2192 to je subtotal (saberi sve osnovice ako ima vi\\u0161e stopa).\\n   - Ako postoji red \\\"=Ukupno bez rabata\\\" ili \\\"Iznos bez PDV-a\\\" (POSLE rabata) \\u2192 to je subtotal.\\n   - \\\"Ukupno bez PDV\\\" je obi\\u010dno BRUTO PRE rabata \\u2014 NE koristi ga direktno kao subtotal. Stavi ga u gross_before_discount.\\n   - Provjeri matematiku prije nego \\u0161to vrati\\u0161 odgovor.\\n\\n4. discount_amount = ukupan iznos rabata u EUR (pozitivan broj, \\u010dak i kad je prikazan kao \\\"-19,93\\\").\\n   Mapira se sa: \\\"Rabat\\\", \\\"Popust\\\", \\\"Odobreni rabat\\\".\\n   Ako nema rabata, koristi 0 ili null.\\n\\n5. gross_before_discount = \\\"Ukupno bez PDV\\\" iz sredine fakture (pre rabata), ako postoji razli\\u010dito od subtotal.\\n\\nPRIMJERI RAZLI\\u010cITIH LAYOUT-a:\\n\\nPRIMJER 1 \\u2014 Fisherman (jedna stopa, sa rabatom):\\n\\\"Ukupno bez PDV: 300,17 / Rabat: 105,06 / PDV: 40,97 / Za pla\\u0107anje EUR: 236,08\\\"\\n\\\"Specifikacija poreza: Osnovica 195,11 / PDV 40,97 / Vrijednost sa PDV 236,08\\\"\\n\\u2192 gross_before_discount=300.17, discount_amount=105.06, subtotal=195.11, tax_amount=40.97, total_amount=236.08\\nProvjera: 195.11 + 40.97 = 236.08 \\u2713\\n\\nPRIMJER 2 \\u2014 Kod Ze\\u0107ana (jedna stopa, eksplicitno \\\"Ukupno bez rabata\\\"):\\n\\\"Ukupno bez PDV: 191,63 / -Rabat: -5,75 / =Ukupno bez rabata: 185,88 / +PDV: 39,03 / SVEGA: 224,91\\\"\\n\\u2192 gross_before_discount=191.63, discount_amount=5.75, subtotal=185.88, tax_amount=39.03, total_amount=224.91\\nProvjera: 185.88 + 39.03 = 224.91 \\u2713\\n\\nPRIMJER 3 \\u2014 Koprivica Rosol (DVIJE porezne stope 21% + 7%):\\n\\\"Ukupno bez PDV: 274,74 / Rabat: 19,93 / PDV: 47,02 / Za pla\\u0107anje EUR: 301,83\\\"\\n\\\"Op\\u0161ta stopa 21%: Osnovica 208,46 / PDV 43,78\\\"\\n\\\"Sni\\u017eena stopa 7%: Osnovica 46,35 / PDV 3,24\\\"\\n\\u2192 gross_before_discount=274.74, discount_amount=19.93,\\n   subtotal=254.81 (208.46+46.35), tax_amount=47.02 (43.78+3.24), total_amount=301.83\\nProvjera: 254.81 + 47.02 = 301.83 \\u2713\\n\\nPRIMJER 4 \\u2014 Montefish (dvije stope, \\\"Popust\\\" umjesto \\\"Rabat\\\"):\\n\\\"Ukupno: 175,03 / Popust: 13,82 / PDV: 17,87 / Za pla\\u0107anje EUR: 179,08\\\"\\n\\\"Promet po stopi 7%: Osnovica 114,14 / PDV 7,99\\\"\\n\\\"Promet po stopi 21%: Osnovica 47,07 / PDV 9,88\\\"\\n\\u2192 gross_before_discount=175.03, discount_amount=13.82,\\n   subtotal=161.21 (114.14+47.07), tax_amount=17.87, total_amount=179.08\\nProvjera: 161.21 + 17.87 = 179.08 \\u2713\\n\\nPRIMJER 5 \\u2014 Vibacom (BEZ rabata, US format brojeva sa zarezom kao hiljade):\\n\\\"Ukupno iznos bez rabata: 3,150.00 / Odobreni rabat: 0.00 / Iznos bez PDV-a: 3,150.00 / Iznos PDV: 661.50 / UKUPNO: 3,811.50\\\"\\n\\u2192 gross_before_discount=3150.00, discount_amount=0, subtotal=3150.00, tax_amount=661.50, total_amount=3811.50\\nProvjera: 3150.00 + 661.50 = 3811.50 \\u2713\\n\\nPRIMJER 6 \\u2014 Voli (jedna linija, mali rabat na nivou stavke, ne na nivou fakture):\\n\\\"Osnovica 298,51 / PDV 62,69 / Ukupno 361,20\\\"\\n\\u2192 subtotal=298.51, discount_amount=null (rabat na nivou stavke nije relevantan), tax_amount=62.69, total_amount=361.20\\nProvjera: 298.51 + 62.69 = 361.20 \\u2713\\n\\nPRIMJER 7 \\u2014 Surfmont POVRAT KUPCA (CREDIT NOTE \\u2014 svi iznosi NEGATIVNI):\\n\\\"Povrat kupca br. 1763/2026/1\\\"\\n\\\"Ukupno bez PDV: -227,82 / Popust: -27,34 / PDV: -42,10 / Ukupno odobreno EUR: -242,58\\\"\\n\\u2192 document_type=\\\"CREDIT_NOTE\\\", gross_before_discount=-227.82, discount_amount=-27.34,\\n   subtotal=-200.48, tax_amount=-42.10, total_amount=-242.58\\nProvjera: -200.48 + (-42.10) = -242.58 \\u2713\\n\\nMAPIRANJE OSTALIH POLJA:\\n- \\\"Ra\\u010dun br.\\\" / \\\"Ra\\u010dun-Otpremnica br.\\\" / \\\"Faktura br.\\\" / \\\"Povrat kupca br.\\\" \\u2192 invoice_number\\n- \\\"Datum\\\" / \\\"Datum ra\\u010duna\\\" / \\\"Datum prometa\\\" / \\\"Datum izdavanja\\\" \\u2192 invoice_date\\n- \\\"Datum valute\\\" / \\\"Datum dospje\\u0107a\\\" \\u2192 due_date (rok pla\\u0107anja)\\n- \\\"Kupac\\\" / \\\"Podaci o kupcu\\\" \\u2192 buyer_name\\n- \\\"PIB\\\" (kupca) \\u2192 buyer_tax_id\\n- \\\"\\u0160ifra\\\" \\u2192 item_code, \\\"Naziv\\\" \\u2192 item_name, \\\"Jm\\\"/\\\"JM\\\" \\u2192 unit\\n- \\\"Kol.\\\"/\\\"Koli\\u010dina\\\" \\u2192 quantity, \\\"Cijena\\\" \\u2192 unit_price (pre rabata)\\n- \\\"Neto Cij.\\\"/\\\"Cijena sa PDV\\\" \\u2192 net_unit_price (posle rabata)\\n- \\\"Neto Iznos\\\"/\\\"Iznos\\\"/\\\"Vrijednost sa PDV\\\" \\u2192 line_total\\n- \\\"Rabat %\\\"/\\\"Popust %\\\" \\u2192 discount_pct\\n- \\\"PDV %\\\" \\u2192 tax_pct\\n- \\\"Na\\u010din pla\\u0107anja\\\" \\u2192 payment_method\\n- \\\"Va\\u0161 prethodni dug iznosi\\\" / \\\"Va\\u0161 dug na dana\\u0161nji dan\\\" \\u2192 previous_balance\";\n\nconst userPrompt = \"Izvuci sve podatke sa ove fakture i vrati kao JSON sa sljede\\u0107om strukturom:\\n\\n{\\n  \\\"document_type\\\": \\\"INVOICE ili CREDIT_NOTE\\\",\\n  \\\"invoice_number\\\": \\\"string\\\",\\n  \\\"invoice_date\\\": \\\"YYYY-MM-DD\\\",\\n  \\\"due_date\\\": \\\"YYYY-MM-DD ili null\\\",\\n  \\\"seller_name\\\": \\\"string\\\",\\n  \\\"seller_address\\\": \\\"string\\\",\\n  \\\"seller_tax_id\\\": \\\"string - PIB prodavca\\\",\\n  \\\"seller_vat_id\\\": \\\"string - PDV broj prodavca ili null\\\",\\n  \\\"seller_phone\\\": \\\"string ili null\\\",\\n  \\\"seller_bank_account\\\": \\\"string ili null\\\",\\n  \\\"buyer_name\\\": \\\"string\\\",\\n  \\\"buyer_address\\\": \\\"string\\\",\\n  \\\"buyer_tax_id\\\": \\\"string - PIB kupca\\\",\\n  \\\"payment_method\\\": \\\"string ili null\\\",\\n  \\\"currency\\\": \\\"EUR\\\",\\n  \\\"gross_before_discount\\\": number ili null,\\n  \\\"discount_amount\\\": number ili null,\\n  \\\"subtotal\\\": number,\\n  \\\"tax_amount\\\": number,\\n  \\\"tax_rate\\\": number (dominantna stopa kao procenat, npr. 21.0),\\n  \\\"total_amount\\\": number,\\n  \\\"previous_balance\\\": number ili null,\\n  \\\"line_items\\\": [\\n    {\\n      \\\"line_number\\\": number,\\n      \\\"item_code\\\": \\\"string ili null\\\",\\n      \\\"item_name\\\": \\\"string\\\",\\n      \\\"unit\\\": \\\"string\\\",\\n      \\\"quantity\\\": number,\\n      \\\"unit_price\\\": number,\\n      \\\"discount_pct\\\": number ili null,\\n      \\\"net_unit_price\\\": number ili null,\\n      \\\"tax_pct\\\": number ili null,\\n      \\\"line_total\\\": number\\n    }\\n  ],\\n  \\\"notes\\\": \\\"string ili null\\\"\\n}\\n\\nOBAVEZNO: Prije nego \\u0161to vrati\\u0161 JSON, izra\\u010dunaj subtotal + tax_amount i provjeri da je jednako total_amount (tolerancija \\u00b10.05). Ako nije, ispravi subtotal.\";\n\n// Build request body with file content as context\nconst requestBody = {\n    model: 'kimi-k2.5',\n    max_tokens: 2500,\n    thinking: { type: 'disabled' },\n    messages: [\n        { role: 'system', content: systemPrompt },\n        {\n            role: 'system',\n            content: 'Sadržaj fakture (izvučen iz PDF-a):\\n\\n' + (typeof fileContent === 'string' ? fileContent : JSON.stringify(fileContent))\n        },\n        {\n            role: 'user',\n            content: userPrompt\n        }\n    ]\n};\n\nreturn [{ json: { requestBody: JSON.stringify(requestBody), filename: filename } }];"
+      },
+      "id": "0aae1f9f-d9b3-4abf-9b81-68a1145c15e5",
+      "name": "Prepare Kimi Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1936,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.requestBody }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "80e9b39c-3849-4ae0-915f-6a065311f4d5",
+      "name": "Kimi K2.5 Vision OCR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -1712,
+        672
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Kimi K2.5 Vision response and map to Airtable fields\ntry {\n  const response = $input.first().json;\n\n  if (!response.choices || !response.choices[0]) {\n    return [{ json: { error: 'Kimi API returned no choices', details: JSON.stringify(response).substring(0, 500) } }];\n  }\n\n  const content = response.choices[0].message.content;\n  const cleaned = content.replace(/```json|```/g, '').trim();\n  const invoice = JSON.parse(cleaned);\n\n  const filename = $('Prepare Kimi Request').first().json.filename || '';\n\n  // Normalize tax_rate: if < 1, it's decimal (0.21), convert to percentage (21.0)\n  let taxPercent = invoice.tax_rate || 0;\n  if (taxPercent > 0 && taxPercent < 1) {\n    taxPercent = taxPercent * 100;\n  }\n\n  // === FINANCIAL SANITY CHECK & AUTO-CORRECT ===\n  // Invariant: subtotal + tax_amount = total_amount (within 0.05 tolerance)\n  // Common Kimi error: extracts \"Ukupno bez PDV\" (gross pre-rabat) as subtotal\n  // instead of post-rabat taxable base (\"Osnovica\" in Specifikacija poreza).\n  const t = typeof invoice.total_amount === 'number' ? invoice.total_amount : 0;\n  const x = typeof invoice.tax_amount === 'number' ? invoice.tax_amount : 0;\n  let s = typeof invoice.subtotal === 'number' ? invoice.subtotal : 0;\n  const d = typeof invoice.discount_amount === 'number' ? invoice.discount_amount : 0;\n  let correctionApplied = null;\n\n  // For credit notes, all values are negative — comparison logic still works because we use abs()\n  if (Math.abs((s + x) - t) > 0.05) {\n    // Case A: subtotal looks like gross-before-discount; discount accounts for the gap\n    if (Math.abs(d) > 0 && Math.abs((s - d + x) - t) <= 0.05) {\n      invoice.gross_before_discount = invoice.gross_before_discount ?? s;\n      invoice.subtotal = +(s - d).toFixed(2);\n      correctionApplied = 'subtracted_discount_from_subtotal';\n    } else {\n      // Case B: derive subtotal from total - tax (most reliable fallback)\n      invoice.gross_before_discount = invoice.gross_before_discount ?? s;\n      invoice.subtotal = +(t - x).toFixed(2);\n      correctionApplied = 'derived_subtotal_from_total_minus_tax';\n    }\n    s = invoice.subtotal;\n  }\n\n  // Final validation — if still broken, surface as error to WF07\n  const finalCheck = Math.abs((s + x) - t);\n  const mathOk = finalCheck <= 0.05;\n\n\n  // Build human-readable items summary for Airtable + Slack\n  const items = invoice.line_items || [];\n  const itemsSummary = items.map(it => {\n    const qty = it.quantity ?? '?';\n    const unit = it.unit || '';\n    const name = it.item_name || 'unknown';\n    return `${name} — ${qty} ${unit}`.trim();\n  }).join('\\n');\n  const itemsCount = items.length;\n\n  // Map to existing Airtable Invoice_Log field names for backward compatibility\n  return [{\n    json: {\n      // === Fields matching current Airtable schema ===\n      seller_name: invoice.seller_name || '',\n      seller_address: invoice.seller_address || '',\n      seller_email: '',\n      invoice_number: invoice.invoice_number || '',\n      invoice_date: invoice.invoice_date || new Date().toISOString().split('T')[0],\n      payment_due_date: invoice.due_date || '',\n      po_number: '',\n      subtotal: invoice.subtotal,\n      total_tax: x,\n      total_tax_percent: taxPercent,\n      invoice_amount: t,\n      currency: invoice.currency || 'EUR',\n      // === New fields ===\n      document_type: invoice.document_type || 'INVOICE',\n      seller_tax_id: invoice.seller_tax_id || '',\n      seller_vat_id: invoice.seller_vat_id || '',\n      seller_phone: invoice.seller_phone || '',\n      seller_bank_account: invoice.seller_bank_account || '',\n      buyer_name: invoice.buyer_name || '',\n      buyer_address: invoice.buyer_address || '',\n      buyer_tax_id: invoice.buyer_tax_id || '',\n      gross_before_discount: invoice.gross_before_discount ?? null,\n      discount_amount: d,\n      payment_method: invoice.payment_method || '',\n      previous_balance: invoice.previous_balance || null,\n      line_items_json: JSON.stringify(invoice.line_items || []),\n      items_summary: itemsSummary,\n      items_count: itemsCount,\n      notes: invoice.notes || '',\n      source_filename: filename,\n      ocr_engine: 'kimi-k2.5-vision',\n      math_correction: correctionApplied,\n      math_check_delta: +finalCheck.toFixed(4),\n      // error field must be null for IF node to route correctly\n      error: mathOk ? null : `Math validation failed: subtotal(${s}) + tax(${x}) != total(${t}), delta=${finalCheck.toFixed(2)}`\n    }\n  }];\n} catch (err) {\n  return [{\n    json: {\n      error: 'Kimi OCR processing failed: ' + err.message,\n      details: JSON.stringify($input.first().json || {}).substring(0, 500)\n    }\n  }];\n}"
+      },
+      "id": "5b137fe9-e390-409c-b1af-049496206ac5",
+      "name": "Parse Kimi Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1488,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4b4c9f34-a5da-4ce2-aef2-821707c46ea1",
+      "name": "OCR Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1264,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=❌ OCR Processing Failed\n\nError: {{ $json.error || 'Unknown error' }}\nDetails: {{ $json.details || 'No details' }}",
+        "otherOptions": {}
+      },
+      "id": "3dc76280-8efb-4c22-bdfd-580c2cddca2f",
+      "name": "Alert OCR Failure",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        -1040,
+        768
+      ],
+      "webhookId": "37620a13-4f23-4e98-87ba-45cbd93308e5",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appjHlTQID87ODAJL",
+          "mode": "list",
+          "cachedResultName": "Hotel Procurement Automation — Test",
+          "cachedResultUrl": "https://airtable.com/appjHlTQID87ODAJL"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbliqNuQDtHyWUTey",
+          "mode": "list",
+          "cachedResultName": "Invoice Log",
+          "cachedResultUrl": "https://airtable.com/appjHlTQID87ODAJL/tbliqNuQDtHyWUTey"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "seller_name": "={{ $json.seller_name }}",
+            "invoice_number": "={{ $json.invoice_number }}",
+            "invoice_date": "={{ $json.invoice_date }}",
+            "invoice_amount": "={{ $json.invoice_amount }}",
+            "currency": "={{ $json.currency }}",
+            "po_number": "={{ $json.po_number }}",
+            "seller_address": "={{ $json.seller_address }}",
+            "seller_email": "={{ $json.seller_email }}",
+            "subtotal": "={{ $json.subtotal }}",
+            "total_tax": "={{ $json.total_tax }}",
+            "total_tax_%": "={{ $json.total_tax_percent }}",
+            "discount_amount": "={{ $json.discount_amount }}",
+            "items_summary": "={{ $json.items_summary }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "seller_name",
+              "displayName": "seller_name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "invoice_number",
+              "displayName": "invoice_number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "invoice_date",
+              "displayName": "invoice_date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "invoice_amount",
+              "displayName": "invoice_amount",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "po_number",
+              "displayName": "po_number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "seller_address",
+              "displayName": "seller_address",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "seller_email",
+              "displayName": "seller_email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "total_tax",
+              "displayName": "total_tax",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "total_tax_%",
+              "displayName": "total_tax_%",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "discount_amount",
+              "displayName": "discount_amount",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "items_summary",
+              "displayName": "items_summary",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "fcb52c67-774e-41ca-b612-68066dc7cc5a",
+      "name": "Save to Invoices DB",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -1040,
+        560
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the invoice_number from the Airtable response to pass to WF07\n// Reference Save node by name since Slack notification now sits between\nconst airtableResult = $('Save to Invoices DB').first().json;\nconst invoiceNumber = airtableResult.fields?.invoice_number || airtableResult.invoice_number || '';\n\nif (!invoiceNumber) {\n  return [{ json: { error: 'No invoice_number found in Airtable response, skipping WF07' } }];\n}\n\nreturn [{ json: { invoice_number: invoiceNumber } }];"
+      },
+      "id": "97e7e808-bbc9-4005-9d17-66a42965118c",
+      "name": "Prepare WF07 Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -816,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "QWff9FlYa2GLaLq5",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/QWff9FlYa2GLaLq5"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -592,
+        560
+      ],
+      "id": "a2d7444c-3458-4f06-ba39-855a803cf69e",
+      "name": "Call '07 - Three-Way Match V3'"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/files",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file"
+            },
+            {
+              "name": "purpose",
+              "value": "file-extract"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "47f07bf2-9a48-4db9-8b5b-b6a39875d8dc",
+      "name": "Upload PDF to Moonshot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -2384,
+        672
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.moonshot.ai/v1/files/{{ $json.id }}/content",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "83b639b7-f59b-4a2c-9b25-bfcb3af027dd",
+      "name": "Get File Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -2160,
+        672
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "=:page_facing_up: *Faktura obrađena* — {{ $('Parse Kimi Response').first().json.seller_name }}\nBroj: {{ $('Parse Kimi Response').first().json.invoice_number }} | Datum: {{ $('Parse Kimi Response').first().json.invoice_date }}\nIznos: {{ $('Parse Kimi Response').first().json.invoice_amount }} {{ $('Parse Kimi Response').first().json.currency }} (rabat: {{ $('Parse Kimi Response').first().json.discount_amount }})\n*Stavke ({{ $('Parse Kimi Response').first().json.items_count }}):*\n```\n{{ $('Parse Kimi Response').first().json.items_summary }}\n```",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        -544,
+        784
+      ],
+      "id": "40d617f8-933d-481f-a94d-d8cf347f3ca2",
+      "name": "Notify Invoice Saved",
+      "webhookId": "slack-success-wf02",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -624,
+        304
+      ],
+      "id": "28d36eb1-d98d-4e83-89b9-a23b54942489",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Upload PDF to Moonshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Kimi Request": {
+      "main": [
+        [
+          {
+            "node": "Kimi K2.5 Vision OCR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kimi K2.5 Vision OCR": {
+      "main": [
+        [
+          {
+            "node": "Parse Kimi Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Kimi Response": {
+      "main": [
+        [
+          {
+            "node": "OCR Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Failed?": {
+      "main": [
+        [
+          {
+            "node": "Alert OCR Failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save to Invoices DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Invoices DB": {
+      "main": [
+        [
+          {
+            "node": "Notify Invoice Saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare WF07 Input": {
+      "main": [
+        [
+          {
+            "node": "Call '07 - Three-Way Match V3'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload PDF to Moonshot": {
+      "main": [
+        [
+          {
+            "node": "Get File Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get File Content": {
+      "main": [
+        [
+          {
+            "node": "Prepare Kimi Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Invoice Saved": {
+      "main": [
+        [
+          {
+            "node": "Prepare WF07 Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "39dad983-84e7-4385-858c-313670ac6aa3",
+  "activeVersionId": "39dad983-84e7-4385-858c-313670ac6aa3",
+  "versionCounter": 14,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:21:57.430Z",
+      "createdAt": "2026-04-12T00:21:57.430Z",
+      "role": "workflow:editor",
+      "workflowId": "NCdhMBBTNLNUKpCe",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:35:44.966Z",
+      "createdAt": "2026-04-10T19:35:44.966Z",
+      "role": "workflow:owner",
+      "workflowId": "NCdhMBBTNLNUKpCe",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-04-12T00:56:10.000Z",
+    "createdAt": "2026-04-12T00:56:04.335Z",
+    "versionId": "39dad983-84e7-4385-858c-313670ac6aa3",
+    "workflowId": "NCdhMBBTNLNUKpCe",
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "passthrough"
+        },
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -2608,
+          672
+        ],
+        "id": "dc84e9f8-1f75-499b-8d19-4165af96e9d0",
+        "name": "When Executed by Another Workflow"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Prepare request body for Kimi K2.5 Vision OCR\n// File content comes from the \"Get File Content\" HTTP Request node\nconst inputData = $input.first().json;\nconst fileContent = inputData.data || inputData.content || (typeof inputData === 'string' ? inputData : JSON.stringify(inputData));\n\n// Get filename from the original trigger node\nconst triggerData = $(\"When Executed by Another Workflow\").first();\nconst filename = triggerData.binary?.file?.fileName || 'invoice.pdf';\n\nconst systemPrompt = \"Ti si AI asistent za ekstrakciju podataka sa faktura hotela Heritage Grand Hotel Perast (Jadran d.o.o. Kotor).\\n\\nPrima\\u0161 tekst fakture i vra\\u0107a\\u0161 strukturirane podatke u JSON formatu.\\n\\nPRAVILA:\\n- Odgovori SAMO validnim JSON-om. Bez markdown blokova, bez backtick-ova, bez obja\\u0161njenja.\\n- Svi broj\\u010dani iznosi kao decimalni brojevi (NE stringovi). Koristi ta\\u010dku kao decimalni separator: 46.08 NE \\\"46,08\\\".\\n- Pa\\u017eljivo sa hiljadama: \\\"3.150,00\\\" i \\\"3,150.00\\\" oba zna\\u010de 3150.00. \\\"1.270,50\\\" zna\\u010di 1270.50.\\n- Datumi u formatu YYYY-MM-DD.\\n- Ako polje ne postoji na fakturi, koristi null.\\n- PDV/porez kao procenat (21.0 za 21%, NE 0.21).\\n- Rabat/popust kao procenat (28.0 za 28%, NE 0.28).\\n\\nTIP DOKUMENTA (KRITI\\u010cNO):\\n- Ako naslov sadr\\u017ei \\\"Ra\\u010dun\\\" / \\\"Faktura\\\" / \\\"Ra\\u010dun-Otpremnica\\\" \\u2192 document_type = \\\"INVOICE\\\", svi iznosi POZITIVNI.\\n- Ako naslov sadr\\u017ei \\\"Povrat kupca\\\" / \\\"Knji\\u017eno odobrenje\\\" / \\\"Storno\\\" \\u2192 document_type = \\\"CREDIT_NOTE\\\", svi iznosi NEGATIVNI (zadr\\u017ei minus znakove kako su prikazani).\\n- NE pretvaraj negativne u pozitivne za credit note. Negativan total_amount je o\\u010dekivan.\\n\\nFINANSIJSKA POLJA \\u2014 KRITI\\u010cNA PRAVILA:\\n\\n1. total_amount = KONA\\u010cAN iznos koji se pla\\u0107a.\\n   Mapira se sa: \\\"Za pla\\u0107anje\\\", \\\"Za pla\\u0107anje EUR\\\", \\\"SVEGA\\\", \\\"UKUPNO\\\" (na dnu), \\\"Ukupno odobreno\\\" (za credit note).\\n   NE mapira se sa: \\\"Ukupno\\\" u sredini fakture (to je \\u010desto bruto pre rabata).\\n\\n2. tax_amount = ukupan iznos PDV-a u EUR.\\n   Ako faktura ima vi\\u0161e poreznih stopa (npr. 21% i 7%), saberi sve PDV iznose iz \\\"Specifikacija poreza\\\" / \\\"Rekapitulacija PDV\\\".\\n\\n3. subtotal = POREZNA OSNOVICA POSLE RABATA. Mora va\\u017eiti: subtotal + tax_amount = total_amount (tolerancija \\u00b10.05).\\n   - Ako postoji red \\\"Osnovica\\\" u \\\"Specifikacija poreza\\\" \\u2192 to je subtotal (saberi sve osnovice ako ima vi\\u0161e stopa).\\n   - Ako postoji red \\\"=Ukupno bez rabata\\\" ili \\\"Iznos bez PDV-a\\\" (POSLE rabata) \\u2192 to je subtotal.\\n   - \\\"Ukupno bez PDV\\\" je obi\\u010dno BRUTO PRE rabata \\u2014 NE koristi ga direktno kao subtotal. Stavi ga u gross_before_discount.\\n   - Provjeri matematiku prije nego \\u0161to vrati\\u0161 odgovor.\\n\\n4. discount_amount = ukupan iznos rabata u EUR (pozitivan broj, \\u010dak i kad je prikazan kao \\\"-19,93\\\").\\n   Mapira se sa: \\\"Rabat\\\", \\\"Popust\\\", \\\"Odobreni rabat\\\".\\n   Ako nema rabata, koristi 0 ili null.\\n\\n5. gross_before_discount = \\\"Ukupno bez PDV\\\" iz sredine fakture (pre rabata), ako postoji razli\\u010dito od subtotal.\\n\\nPRIMJERI RAZLI\\u010cITIH LAYOUT-a:\\n\\nPRIMJER 1 \\u2014 Fisherman (jedna stopa, sa rabatom):\\n\\\"Ukupno bez PDV: 300,17 / Rabat: 105,06 / PDV: 40,97 / Za pla\\u0107anje EUR: 236,08\\\"\\n\\\"Specifikacija poreza: Osnovica 195,11 / PDV 40,97 / Vrijednost sa PDV 236,08\\\"\\n\\u2192 gross_before_discount=300.17, discount_amount=105.06, subtotal=195.11, tax_amount=40.97, total_amount=236.08\\nProvjera: 195.11 + 40.97 = 236.08 \\u2713\\n\\nPRIMJER 2 \\u2014 Kod Ze\\u0107ana (jedna stopa, eksplicitno \\\"Ukupno bez rabata\\\"):\\n\\\"Ukupno bez PDV: 191,63 / -Rabat: -5,75 / =Ukupno bez rabata: 185,88 / +PDV: 39,03 / SVEGA: 224,91\\\"\\n\\u2192 gross_before_discount=191.63, discount_amount=5.75, subtotal=185.88, tax_amount=39.03, total_amount=224.91\\nProvjera: 185.88 + 39.03 = 224.91 \\u2713\\n\\nPRIMJER 3 \\u2014 Koprivica Rosol (DVIJE porezne stope 21% + 7%):\\n\\\"Ukupno bez PDV: 274,74 / Rabat: 19,93 / PDV: 47,02 / Za pla\\u0107anje EUR: 301,83\\\"\\n\\\"Op\\u0161ta stopa 21%: Osnovica 208,46 / PDV 43,78\\\"\\n\\\"Sni\\u017eena stopa 7%: Osnovica 46,35 / PDV 3,24\\\"\\n\\u2192 gross_before_discount=274.74, discount_amount=19.93,\\n   subtotal=254.81 (208.46+46.35), tax_amount=47.02 (43.78+3.24), total_amount=301.83\\nProvjera: 254.81 + 47.02 = 301.83 \\u2713\\n\\nPRIMJER 4 \\u2014 Montefish (dvije stope, \\\"Popust\\\" umjesto \\\"Rabat\\\"):\\n\\\"Ukupno: 175,03 / Popust: 13,82 / PDV: 17,87 / Za pla\\u0107anje EUR: 179,08\\\"\\n\\\"Promet po stopi 7%: Osnovica 114,14 / PDV 7,99\\\"\\n\\\"Promet po stopi 21%: Osnovica 47,07 / PDV 9,88\\\"\\n\\u2192 gross_before_discount=175.03, discount_amount=13.82,\\n   subtotal=161.21 (114.14+47.07), tax_amount=17.87, total_amount=179.08\\nProvjera: 161.21 + 17.87 = 179.08 \\u2713\\n\\nPRIMJER 5 \\u2014 Vibacom (BEZ rabata, US format brojeva sa zarezom kao hiljade):\\n\\\"Ukupno iznos bez rabata: 3,150.00 / Odobreni rabat: 0.00 / Iznos bez PDV-a: 3,150.00 / Iznos PDV: 661.50 / UKUPNO: 3,811.50\\\"\\n\\u2192 gross_before_discount=3150.00, discount_amount=0, subtotal=3150.00, tax_amount=661.50, total_amount=3811.50\\nProvjera: 3150.00 + 661.50 = 3811.50 \\u2713\\n\\nPRIMJER 6 \\u2014 Voli (jedna linija, mali rabat na nivou stavke, ne na nivou fakture):\\n\\\"Osnovica 298,51 / PDV 62,69 / Ukupno 361,20\\\"\\n\\u2192 subtotal=298.51, discount_amount=null (rabat na nivou stavke nije relevantan), tax_amount=62.69, total_amount=361.20\\nProvjera: 298.51 + 62.69 = 361.20 \\u2713\\n\\nPRIMJER 7 \\u2014 Surfmont POVRAT KUPCA (CREDIT NOTE \\u2014 svi iznosi NEGATIVNI):\\n\\\"Povrat kupca br. 1763/2026/1\\\"\\n\\\"Ukupno bez PDV: -227,82 / Popust: -27,34 / PDV: -42,10 / Ukupno odobreno EUR: -242,58\\\"\\n\\u2192 document_type=\\\"CREDIT_NOTE\\\", gross_before_discount=-227.82, discount_amount=-27.34,\\n   subtotal=-200.48, tax_amount=-42.10, total_amount=-242.58\\nProvjera: -200.48 + (-42.10) = -242.58 \\u2713\\n\\nMAPIRANJE OSTALIH POLJA:\\n- \\\"Ra\\u010dun br.\\\" / \\\"Ra\\u010dun-Otpremnica br.\\\" / \\\"Faktura br.\\\" / \\\"Povrat kupca br.\\\" \\u2192 invoice_number\\n- \\\"Datum\\\" / \\\"Datum ra\\u010duna\\\" / \\\"Datum prometa\\\" / \\\"Datum izdavanja\\\" \\u2192 invoice_date\\n- \\\"Datum valute\\\" / \\\"Datum dospje\\u0107a\\\" \\u2192 due_date (rok pla\\u0107anja)\\n- \\\"Kupac\\\" / \\\"Podaci o kupcu\\\" \\u2192 buyer_name\\n- \\\"PIB\\\" (kupca) \\u2192 buyer_tax_id\\n- \\\"\\u0160ifra\\\" \\u2192 item_code, \\\"Naziv\\\" \\u2192 item_name, \\\"Jm\\\"/\\\"JM\\\" \\u2192 unit\\n- \\\"Kol.\\\"/\\\"Koli\\u010dina\\\" \\u2192 quantity, \\\"Cijena\\\" \\u2192 unit_price (pre rabata)\\n- \\\"Neto Cij.\\\"/\\\"Cijena sa PDV\\\" \\u2192 net_unit_price (posle rabata)\\n- \\\"Neto Iznos\\\"/\\\"Iznos\\\"/\\\"Vrijednost sa PDV\\\" \\u2192 line_total\\n- \\\"Rabat %\\\"/\\\"Popust %\\\" \\u2192 discount_pct\\n- \\\"PDV %\\\" \\u2192 tax_pct\\n- \\\"Na\\u010din pla\\u0107anja\\\" \\u2192 payment_method\\n- \\\"Va\\u0161 prethodni dug iznosi\\\" / \\\"Va\\u0161 dug na dana\\u0161nji dan\\\" \\u2192 previous_balance\";\n\nconst userPrompt = \"Izvuci sve podatke sa ove fakture i vrati kao JSON sa sljede\\u0107om strukturom:\\n\\n{\\n  \\\"document_type\\\": \\\"INVOICE ili CREDIT_NOTE\\\",\\n  \\\"invoice_number\\\": \\\"string\\\",\\n  \\\"invoice_date\\\": \\\"YYYY-MM-DD\\\",\\n  \\\"due_date\\\": \\\"YYYY-MM-DD ili null\\\",\\n  \\\"seller_name\\\": \\\"string\\\",\\n  \\\"seller_address\\\": \\\"string\\\",\\n  \\\"seller_tax_id\\\": \\\"string - PIB prodavca\\\",\\n  \\\"seller_vat_id\\\": \\\"string - PDV broj prodavca ili null\\\",\\n  \\\"seller_phone\\\": \\\"string ili null\\\",\\n  \\\"seller_bank_account\\\": \\\"string ili null\\\",\\n  \\\"buyer_name\\\": \\\"string\\\",\\n  \\\"buyer_address\\\": \\\"string\\\",\\n  \\\"buyer_tax_id\\\": \\\"string - PIB kupca\\\",\\n  \\\"payment_method\\\": \\\"string ili null\\\",\\n  \\\"currency\\\": \\\"EUR\\\",\\n  \\\"gross_before_discount\\\": number ili null,\\n  \\\"discount_amount\\\": number ili null,\\n  \\\"subtotal\\\": number,\\n  \\\"tax_amount\\\": number,\\n  \\\"tax_rate\\\": number (dominantna stopa kao procenat, npr. 21.0),\\n  \\\"total_amount\\\": number,\\n  \\\"previous_balance\\\": number ili null,\\n  \\\"line_items\\\": [\\n    {\\n      \\\"line_number\\\": number,\\n      \\\"item_code\\\": \\\"string ili null\\\",\\n      \\\"item_name\\\": \\\"string\\\",\\n      \\\"unit\\\": \\\"string\\\",\\n      \\\"quantity\\\": number,\\n      \\\"unit_price\\\": number,\\n      \\\"discount_pct\\\": number ili null,\\n      \\\"net_unit_price\\\": number ili null,\\n      \\\"tax_pct\\\": number ili null,\\n      \\\"line_total\\\": number\\n    }\\n  ],\\n  \\\"notes\\\": \\\"string ili null\\\"\\n}\\n\\nOBAVEZNO: Prije nego \\u0161to vrati\\u0161 JSON, izra\\u010dunaj subtotal + tax_amount i provjeri da je jednako total_amount (tolerancija \\u00b10.05). Ako nije, ispravi subtotal.\";\n\n// Build request body with file content as context\nconst requestBody = {\n    model: 'kimi-k2.5',\n    max_tokens: 2500,\n    thinking: { type: 'disabled' },\n    messages: [\n        { role: 'system', content: systemPrompt },\n        {\n            role: 'system',\n            content: 'Sadržaj fakture (izvučen iz PDF-a):\\n\\n' + (typeof fileContent === 'string' ? fileContent : JSON.stringify(fileContent))\n        },\n        {\n            role: 'user',\n            content: userPrompt\n        }\n    ]\n};\n\nreturn [{ json: { requestBody: JSON.stringify(requestBody), filename: filename } }];"
+        },
+        "id": "0aae1f9f-d9b3-4abf-9b81-68a1145c15e5",
+        "name": "Prepare Kimi Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1936,
+          672
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.moonshot.ai/v1/chat/completions",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ $json.requestBody }}",
+          "options": {
+            "timeout": 120000
+          }
+        },
+        "id": "80e9b39c-3849-4ae0-915f-6a065311f4d5",
+        "name": "Kimi K2.5 Vision OCR",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [
+          -1712,
+          672
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "ircrqFbA5nzR0ppe",
+            "name": "Header Auth account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Parse Kimi K2.5 Vision response and map to Airtable fields\ntry {\n  const response = $input.first().json;\n\n  if (!response.choices || !response.choices[0]) {\n    return [{ json: { error: 'Kimi API returned no choices', details: JSON.stringify(response).substring(0, 500) } }];\n  }\n\n  const content = response.choices[0].message.content;\n  const cleaned = content.replace(/```json|```/g, '').trim();\n  const invoice = JSON.parse(cleaned);\n\n  const filename = $('Prepare Kimi Request').first().json.filename || '';\n\n  // Normalize tax_rate: if < 1, it's decimal (0.21), convert to percentage (21.0)\n  let taxPercent = invoice.tax_rate || 0;\n  if (taxPercent > 0 && taxPercent < 1) {\n    taxPercent = taxPercent * 100;\n  }\n\n  // === FINANCIAL SANITY CHECK & AUTO-CORRECT ===\n  // Invariant: subtotal + tax_amount = total_amount (within 0.05 tolerance)\n  // Common Kimi error: extracts \"Ukupno bez PDV\" (gross pre-rabat) as subtotal\n  // instead of post-rabat taxable base (\"Osnovica\" in Specifikacija poreza).\n  const t = typeof invoice.total_amount === 'number' ? invoice.total_amount : 0;\n  const x = typeof invoice.tax_amount === 'number' ? invoice.tax_amount : 0;\n  let s = typeof invoice.subtotal === 'number' ? invoice.subtotal : 0;\n  const d = typeof invoice.discount_amount === 'number' ? invoice.discount_amount : 0;\n  let correctionApplied = null;\n\n  // For credit notes, all values are negative — comparison logic still works because we use abs()\n  if (Math.abs((s + x) - t) > 0.05) {\n    // Case A: subtotal looks like gross-before-discount; discount accounts for the gap\n    if (Math.abs(d) > 0 && Math.abs((s - d + x) - t) <= 0.05) {\n      invoice.gross_before_discount = invoice.gross_before_discount ?? s;\n      invoice.subtotal = +(s - d).toFixed(2);\n      correctionApplied = 'subtracted_discount_from_subtotal';\n    } else {\n      // Case B: derive subtotal from total - tax (most reliable fallback)\n      invoice.gross_before_discount = invoice.gross_before_discount ?? s;\n      invoice.subtotal = +(t - x).toFixed(2);\n      correctionApplied = 'derived_subtotal_from_total_minus_tax';\n    }\n    s = invoice.subtotal;\n  }\n\n  // Final validation — if still broken, surface as error to WF07\n  const finalCheck = Math.abs((s + x) - t);\n  const mathOk = finalCheck <= 0.05;\n\n\n  // Build human-readable items summary for Airtable + Slack\n  const items = invoice.line_items || [];\n  const itemsSummary = items.map(it => {\n    const qty = it.quantity ?? '?';\n    const unit = it.unit || '';\n    const name = it.item_name || 'unknown';\n    return `${name} — ${qty} ${unit}`.trim();\n  }).join('\\n');\n  const itemsCount = items.length;\n\n  // Map to existing Airtable Invoice_Log field names for backward compatibility\n  return [{\n    json: {\n      // === Fields matching current Airtable schema ===\n      seller_name: invoice.seller_name || '',\n      seller_address: invoice.seller_address || '',\n      seller_email: '',\n      invoice_number: invoice.invoice_number || '',\n      invoice_date: invoice.invoice_date || new Date().toISOString().split('T')[0],\n      payment_due_date: invoice.due_date || '',\n      po_number: '',\n      subtotal: invoice.subtotal,\n      total_tax: x,\n      total_tax_percent: taxPercent,\n      invoice_amount: t,\n      currency: invoice.currency || 'EUR',\n      // === New fields ===\n      document_type: invoice.document_type || 'INVOICE',\n      seller_tax_id: invoice.seller_tax_id || '',\n      seller_vat_id: invoice.seller_vat_id || '',\n      seller_phone: invoice.seller_phone || '',\n      seller_bank_account: invoice.seller_bank_account || '',\n      buyer_name: invoice.buyer_name || '',\n      buyer_address: invoice.buyer_address || '',\n      buyer_tax_id: invoice.buyer_tax_id || '',\n      gross_before_discount: invoice.gross_before_discount ?? null,\n      discount_amount: d,\n      payment_method: invoice.payment_method || '',\n      previous_balance: invoice.previous_balance || null,\n      line_items_json: JSON.stringify(invoice.line_items || []),\n      items_summary: itemsSummary,\n      items_count: itemsCount,\n      notes: invoice.notes || '',\n      source_filename: filename,\n      ocr_engine: 'kimi-k2.5-vision',\n      math_correction: correctionApplied,\n      math_check_delta: +finalCheck.toFixed(4),\n      // error field must be null for IF node to route correctly\n      error: mathOk ? null : `Math validation failed: subtotal(${s}) + tax(${x}) != total(${t}), delta=${finalCheck.toFixed(2)}`\n    }\n  }];\n} catch (err) {\n  return [{\n    json: {\n      error: 'Kimi OCR processing failed: ' + err.message,\n      details: JSON.stringify($input.first().json || {}).substring(0, 500)\n    }\n  }];\n}"
+        },
+        "id": "5b137fe9-e390-409c-b1af-049496206ac5",
+        "name": "Parse Kimi Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1488,
+          672
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "condition-1",
+                "leftValue": "={{ $json.error }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "exists"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "4b4c9f34-a5da-4ce2-aef2-821707c46ea1",
+        "name": "OCR Failed?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          -1264,
+          672
+        ]
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=❌ OCR Processing Failed\n\nError: {{ $json.error || 'Unknown error' }}\nDetails: {{ $json.details || 'No details' }}",
+          "otherOptions": {}
+        },
+        "id": "3dc76280-8efb-4c22-bdfd-580c2cddca2f",
+        "name": "Alert OCR Failure",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.1,
+        "position": [
+          -1040,
+          768
+        ],
+        "webhookId": "37620a13-4f23-4e98-87ba-45cbd93308e5",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "create",
+          "base": {
+            "__rl": true,
+            "value": "appjHlTQID87ODAJL",
+            "mode": "list",
+            "cachedResultName": "Hotel Procurement Automation — Test",
+            "cachedResultUrl": "https://airtable.com/appjHlTQID87ODAJL"
+          },
+          "table": {
+            "__rl": true,
+            "value": "tbliqNuQDtHyWUTey",
+            "mode": "list",
+            "cachedResultName": "Invoice Log",
+            "cachedResultUrl": "https://airtable.com/appjHlTQID87ODAJL/tbliqNuQDtHyWUTey"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "seller_name": "={{ $json.seller_name }}",
+              "invoice_number": "={{ $json.invoice_number }}",
+              "invoice_date": "={{ $json.invoice_date }}",
+              "invoice_amount": "={{ $json.invoice_amount }}",
+              "currency": "={{ $json.currency }}",
+              "po_number": "={{ $json.po_number }}",
+              "seller_address": "={{ $json.seller_address }}",
+              "seller_email": "={{ $json.seller_email }}",
+              "subtotal": "={{ $json.subtotal }}",
+              "total_tax": "={{ $json.total_tax }}",
+              "total_tax_%": "={{ $json.total_tax_percent }}",
+              "discount_amount": "={{ $json.discount_amount }}",
+              "items_summary": "={{ $json.items_summary }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "seller_name",
+                "displayName": "seller_name",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "invoice_number",
+                "displayName": "invoice_number",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "invoice_date",
+                "displayName": "invoice_date",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "invoice_amount",
+                "displayName": "invoice_amount",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "currency",
+                "displayName": "currency",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "po_number",
+                "displayName": "po_number",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "seller_address",
+                "displayName": "seller_address",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "seller_email",
+                "displayName": "seller_email",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "subtotal",
+                "displayName": "subtotal",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "total_tax",
+                "displayName": "total_tax",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "total_tax_%",
+                "displayName": "total_tax_%",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "discount_amount",
+                "displayName": "discount_amount",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "number",
+                "readOnly": false,
+                "removed": false
+              },
+              {
+                "id": "items_summary",
+                "displayName": "items_summary",
+                "required": false,
+                "defaultMatch": false,
+                "canBeUsedToMatch": true,
+                "display": true,
+                "type": "string",
+                "readOnly": false,
+                "removed": false
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "id": "fcb52c67-774e-41ca-b612-68066dc7cc5a",
+        "name": "Save to Invoices DB",
+        "type": "n8n-nodes-base.airtable",
+        "typeVersion": 2.1,
+        "position": [
+          -1040,
+          560
+        ],
+        "credentials": {
+          "airtableTokenApi": {
+            "id": "dmzc6SYrfINDEidP",
+            "name": "Airtable Personal Access Token account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Extract the invoice_number from the Airtable response to pass to WF07\n// Reference Save node by name since Slack notification now sits between\nconst airtableResult = $('Save to Invoices DB').first().json;\nconst invoiceNumber = airtableResult.fields?.invoice_number || airtableResult.invoice_number || '';\n\nif (!invoiceNumber) {\n  return [{ json: { error: 'No invoice_number found in Airtable response, skipping WF07' } }];\n}\n\nreturn [{ json: { invoice_number: invoiceNumber } }];"
+        },
+        "id": "97e7e808-bbc9-4005-9d17-66a42965118c",
+        "name": "Prepare WF07 Input",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -816,
+          560
+        ]
+      },
+      {
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "QWff9FlYa2GLaLq5",
+            "mode": "id",
+            "cachedResultUrl": "/workflow/QWff9FlYa2GLaLq5"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {},
+            "matchingColumns": [],
+            "schema": [],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": true
+          },
+          "mode": "each",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          -592,
+          560
+        ],
+        "id": "a2d7444c-3458-4f06-ba39-855a803cf69e",
+        "name": "Call '07 - Three-Way Match V3'"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.moonshot.ai/v1/files",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "contentType": "multipart-form-data",
+          "bodyParameters": {
+            "parameters": [
+              {
+                "parameterType": "formBinaryData",
+                "name": "file",
+                "inputDataFieldName": "file"
+              },
+              {
+                "name": "purpose",
+                "value": "file-extract"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 120000
+          }
+        },
+        "id": "47f07bf2-9a48-4db9-8b5b-b6a39875d8dc",
+        "name": "Upload PDF to Moonshot",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [
+          -2384,
+          672
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "ircrqFbA5nzR0ppe",
+            "name": "Header Auth account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "=https://api.moonshot.ai/v1/files/{{ $json.id }}/content",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {
+            "timeout": 120000
+          }
+        },
+        "id": "83b639b7-f59b-4a2c-9b25-bfcb3af027dd",
+        "name": "Get File Content",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [
+          -2160,
+          672
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "ircrqFbA5nzR0ppe",
+            "name": "Header Auth account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "select": "channel",
+          "channelId": {
+            "__rl": true,
+            "value": "#all-n8n-workflows",
+            "mode": "name"
+          },
+          "text": "=:page_facing_up: *Faktura obrađena* — {{ $('Parse Kimi Response').first().json.seller_name }}\nBroj: {{ $('Parse Kimi Response').first().json.invoice_number }} | Datum: {{ $('Parse Kimi Response').first().json.invoice_date }}\nIznos: {{ $('Parse Kimi Response').first().json.invoice_amount }} {{ $('Parse Kimi Response').first().json.currency }} (rabat: {{ $('Parse Kimi Response').first().json.discount_amount }})\n*Stavke ({{ $('Parse Kimi Response').first().json.items_count }}):*\n```\n{{ $('Parse Kimi Response').first().json.items_summary }}\n```",
+          "otherOptions": {}
+        },
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 2.3,
+        "position": [
+          -544,
+          784
+        ],
+        "id": "40d617f8-933d-481f-a94d-d8cf347f3ca2",
+        "name": "Notify Invoice Saved",
+        "webhookId": "slack-success-wf02",
+        "credentials": {
+          "slackApi": {
+            "id": "B9JDVWc1VzFbt3qg",
+            "name": "Slack account"
+          }
+        }
+      },
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -624,
+          304
+        ],
+        "id": "28d36eb1-d98d-4e83-89b9-a23b54942489",
+        "name": "Sticky Note"
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Upload PDF to Moonshot",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Kimi Request": {
+        "main": [
+          [
+            {
+              "node": "Kimi K2.5 Vision OCR",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Kimi K2.5 Vision OCR": {
+        "main": [
+          [
+            {
+              "node": "Parse Kimi Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Kimi Response": {
+        "main": [
+          [
+            {
+              "node": "OCR Failed?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "OCR Failed?": {
+        "main": [
+          [
+            {
+              "node": "Alert OCR Failure",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Save to Invoices DB",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Save to Invoices DB": {
+        "main": [
+          [
+            {
+              "node": "Notify Invoice Saved",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare WF07 Input": {
+        "main": [
+          [
+            {
+              "node": "Call '07 - Three-Way Match V3'",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Upload PDF to Moonshot": {
+        "main": [
+          [
+            {
+              "node": "Get File Content",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get File Content": {
+        "main": [
+          [
+            {
+              "node": "Prepare Kimi Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Notify Invoice Saved": {
+        "main": [
+          [
+            {
+              "node": "Prepare WF07 Input",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Martin Cupic",
+    "name": "Version 39dad983",
+    "description": "",
+    "autosaved": true,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-12T00:56:10.318Z",
+        "id": 9,
+        "workflowId": "NCdhMBBTNLNUKpCe",
+        "versionId": "39dad983-84e7-4385-858c-313670ac6aa3",
+        "event": "activated",
+        "userId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    ]
+  }
+}

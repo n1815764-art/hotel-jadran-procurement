@@ -1,0 +1,639 @@
+{
+  "updatedAt": "2026-04-12T01:37:44.746Z",
+  "createdAt": "2026-04-10T19:26:09.714Z",
+  "id": "7UCet4uWOFGCnUG6",
+  "name": "12 - Anomaly Detection",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 22 * * *"
+            }
+          ]
+        }
+      },
+      "id": "d40732b0-5dd1-49a9-893c-c83af0f01e89",
+      "name": "Cron - 10PM Nightly Scan",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        208
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "4825e916-0ef3-4865-959a-3d4e6de11dc1",
+      "name": "When clicking \"Test workflow\"",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/PO_Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "36350d4c-22fd-4cb6-a1e0-6bdc9b66aed9",
+      "name": "Airtable - POs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        64
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Invoice%20Log",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "aa9225d1-46ac-4c7f-b4f2-04524c1be2c0",
+      "name": "Airtable - Invoices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        192
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Inventory%20with%20Par%20Levels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "a3c00241-4ca9-463c-be2d-dc097ba6fa92",
+      "name": "Airtable - Inventory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        320
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20GL%20Account%20Mapping",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "faaa50d0-56b4-457f-8979-071dc4651fcb",
+      "name": "Airtable - Budgets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        448
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Sample%20Occupancy%20Data",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "2c45fb10-53c8-4976-b993-a7a35140b0e9",
+      "name": "Airtable - Occupancy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        576
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      },
+      "notes": "NEW: Needed for revenue reconciliation context (occupancy vs revenue correlation)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const pos = $('Airtable - POs').first().json.records || [];\nconst invoices = $('Airtable - Invoices').first().json.records || [];\nconst inventory = $('Airtable - Inventory').first().json.records || [];\nconst budgets = $('Airtable - Budgets').first().json.records || [];\nconst occ = $('Airtable - Occupancy').first().json.records || [];\n\n// ===== EXISTING: Anomaly Detection data =====\nconst negativeStock = inventory.filter(r => (r.fields['Current Stock'] || 0) < 0)\n  .map(r => r.fields.Name + ': ' + r.fields['Current Stock'] + ' ' + (r.fields.Unit || '') + ', Par: ' + (r.fields['Par Level'] || 0))\n  .join('\\n') || 'None';\n\nconst todaysPOs = pos.map(r => (r.fields.po_number || 'N/A') + ': ' + (r.fields.vendor_name || 'Unknown') + ' €' + (r.fields.total_amount || 0)).join('\\n') || 'None';\nconst todaysInvoices = invoices.map(r => '#' + (r.fields.invoice_number || 'N/A') + ': ' + (r.fields.seller_name || 'Unknown') + ' €' + (r.fields.invoice_amount || 0) + ' — ' + (r.fields.match_status?.name || r.fields.match_status || 'Pending')).join('\\n') || 'None';\nconst budgetStatus = budgets.map(r => (r.fields['Item Category'] || 'Unknown') + ': ' + (r.fields['GL Code'] || '') + ' Budget: €' + (r.fields['Monthly Budget'] || 0)).join('\\n') || 'No budget data';\n\n// ===== NEW: Revenue Reconciliation data =====\n// In testing phase, we construct sample revenue figures.\n// When Abacus POS2 API arrives, these will come from live endpoints.\nconst today = new Date();\nconst businessDate = today.toISOString().split('T')[0];\n\n// Get today's occupancy for revenue estimation\nconst todayOcc = occ.find(r => r.fields.Date === businessDate);\nconst roomsSold = todayOcc ? (r => r.fields['Rooms Sold'] || 0)(todayOcc) : Math.round(200 * 0.78);\nconst occPct = todayOcc ? ((todayOcc.fields['Occupancy %'] || 0) * 100) : 78;\nconst adr = 85; // sample ADR for Hotel Jadran\n\n// Sample revenue figures (will be replaced by real POS/PMS data)\nconst roomRevenue = roomsSold * adr;\nconst fbRevenue = Math.round(roomsSold * 28); // ~€28 F&B per occupied room\nconst otherRevenue = Math.round(roomsSold * 4.5); // spa, parking, etc\nconst totalRevenue = roomRevenue + fbRevenue + otherRevenue;\n\n// Sample collections (normally from CC batch + cash + city ledger)\nconst ccTotal = Math.round(totalRevenue * 0.87); // 87% CC\nconst cashTotal = Math.round(totalRevenue * 0.10); // 10% cash\nconst cityLedger = totalRevenue - ccTotal - cashTotal; // remainder\n\n// Sample voids/comps\nconst voidCompData = [\n  { type: 'void', item: 'Biftek na žaru', amount: 32, employee: 'Marko P.', authorized_by: 'Šef sale', reason: 'Pogrešna narudžba', timestamp: businessDate + 'T19:45:00' },\n  { type: 'comp', item: 'Desert — Panna Cotta x2', amount: 18, employee: 'Ana S.', authorized_by: 'Menadžer restorana', reason: 'Kompenzacija za kašnjenje', timestamp: businessDate + 'T21:30:00' }\n];\n\n// Sample no-show data\nconst noshowData = [\n  { reservation_id: 'RES-2026-' + Math.floor(Math.random()*9000+1000), guest_name: 'Schmidt, Thomas', room_type: 'Superior Double', rate: 95, charged: true, charge_amount: 95 }\n];\n\nreturn [{ json: {\n  // Existing anomaly data\n  scan_date: businessDate,\n  negative_stock_items: negativeStock,\n  has_negative_stock: inventory.some(r => (r.fields['Current Stock'] || 0) < 0),\n  todays_pos_formatted: todaysPOs,\n  todays_invoices_formatted: todaysInvoices,\n  budget_status_formatted: budgetStatus,\n  total_pos: pos.length,\n  total_invoices: invoices.length,\n  // NEW: Revenue reconciliation data for Prompt 15\n  business_date: businessDate,\n  rooms_sold: roomsSold,\n  occupancy_pct: occPct,\n  adr: adr,\n  room_revenue: roomRevenue,\n  restaurant_sales: Math.round(fbRevenue * 0.65),\n  bar_sales: Math.round(fbRevenue * 0.25),\n  room_service_sales: Math.round(fbRevenue * 0.10),\n  total_fb: fbRevenue,\n  spa_revenue: Math.round(otherRevenue * 0.5),\n  parking_revenue: Math.round(otherRevenue * 0.3),\n  other_misc: Math.round(otherRevenue * 0.2),\n  total_other: otherRevenue,\n  total_revenue: totalRevenue,\n  cc_total: ccTotal,\n  cash_total: cashTotal,\n  city_ledger_total: cityLedger,\n  void_comp_data: JSON.stringify(voidCompData),\n  noshow_data: JSON.stringify(noshowData)\n} }];"
+      },
+      "id": "a92ec31f-2374-4cb9-891e-6d25696c65c5",
+      "name": "Code - Aggregate Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOONSHOT_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'kimi-k2.5', max_tokens: 600, thinking: { type: 'disabled' }, messages: [{ role: 'system', content: 'You are a hotel procurement AI scanning for anomalies. Check for: DUPLICATE_INVOICE, PRICE_SPIKE, UNUSUAL_QUANTITY, BUDGET_OVERRUN, NEGATIVE_STOCK, GHOST_SURPLUS. Only report actual anomalies found. If nothing suspicious, report all clear. Respond ONLY in valid JSON. No markdown, no backticks.' }, { role: 'user', content: 'Scan procurement data for anomalies (Date: ' + $json.scan_date + '):\\n\\nPOs (' + $json.total_pos + '):\\n' + $json.todays_pos_formatted + '\\n\\nInvoices (' + $json.total_invoices + '):\\n' + $json.todays_invoices_formatted + '\\n\\nNEGATIVE STOCK:\\n' + $json.negative_stock_items + '\\n\\nBUDGET STATUS:\\n' + $json.budget_status_formatted + '\\n\\nRespond: {\"anomalies_found\": N, \"anomalies\": [{\"type\": \"...\", \"severity\": \"HIGH|MEDIUM|LOW\", \"description\": \"...\", \"recommended_action\": \"...\"}], \"summary\": \"...\", \"all_clear\": boolean}' }] }) }}",
+        "options": {}
+      },
+      "id": "34bbb49e-8867-439c-a85b-b7a233a06c2e",
+      "name": "AI - Anomaly Detection (Prompt 8)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        736,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Prompt 8 anomaly result and store for later merge\nconst response = $input.first().json;\nconst content = response.choices[0].message.content;\nlet parsed;\ntry {\n  parsed = JSON.parse(content.replace(/```json|```/g, '').trim());\n} catch(e) {\n  parsed = { anomalies_found: 0, anomalies: [], summary: 'Greška u parsiranju Prompt 8 rezultata: ' + e.message, all_clear: true };\n}\n\n// Pass through aggregate data + anomaly result\nconst agg = $('Code - Aggregate Data').first().json;\nreturn [{ json: { ...agg, anomaly_result: parsed } }];"
+      },
+      "id": "42c73c32-1053-4b2a-a639-7ef275015a96",
+      "name": "Code - Parse Anomaly Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Prompt 15 Revenue Reconciliation input\nconst d = $input.first().json;\n\nconst systemPrompt = `Ti si AI noćni auditor za Hotel Jadran, hotel sa 200 soba u Budvi, Crna Gora. Svake noći obavljaš reviziju dnevnih prihoda uspoređujući podatke iz više izvora.\n\nYou MUST respond with valid JSON only. No markdown code blocks, no backticks, no explanation outside the JSON. Raw JSON only.\n\nKlasifikacija neslaganja:\n- Balanced: razlika = €0\n- Minor Discrepancy: razlika < €50 ILI < 0.5% ukupnog prihoda\n- Major Discrepancy: razlika >= €50 I >= 0.5% ukupnog prihoda\n- Unbalanced: ne može se uskladiti — nedostaju podaci ili sistemska greška\n\nOutput JSON format:\n{\"business_date\": \"YYYY-MM-DD\", \"reconciliation_status\": \"Balanced|Minor Discrepancy|Major Discrepancy|Unbalanced\", \"total_revenue\": 0, \"total_collections\": 0, \"discrepancy_amount\": 0, \"revenue_breakdown\": {\"rooms\": 0, \"fb\": 0, \"other\": 0}, \"collections_breakdown\": {\"credit_card\": 0, \"cash\": 0, \"city_ledger\": 0}, \"void_comp_audit\": {\"total_voids\": 0, \"total_comps\": 0, \"total_amount\": 0, \"flags\": [], \"all_authorized\": true}, \"noshow_audit\": {\"total_noshows\": 0, \"all_charged\": true, \"uncharged\": [], \"total_noshow_revenue\": 0}, \"anomalies\": [], \"ai_summary\": \"BCS tekst 2-4 rečenice\", \"requires_attention\": false, \"attention_items\": []}`;\n\nconst userPrompt = `Poslovni datum: ${d.business_date}\nHotel: Hotel Jadran (200 soba)\nPopunjenost: ${d.occupancy_pct}% (${d.rooms_sold} soba)\n\n=== PRIHODI OD SOBA (PMS) ===\nProdane sobe: ${d.rooms_sold}\nProsječna cijena (ADR): €${d.adr}\nUkupan prihod od soba: €${d.room_revenue}\n\nNo-show rezervacije:\n${d.noshow_data}\n\n=== F&B PRIHODI (POS) ===\nRestoran: €${d.restaurant_sales}\nBar: €${d.bar_sales}\nRoom service: €${d.room_service_sales}\nUkupno F&B: €${d.total_fb}\n\n=== OSTALI PRIHODI ===\nSpa: €${d.spa_revenue}\nParking: €${d.parking_revenue}\nOstalo: €${d.other_misc}\nUkupno ostalo: €${d.total_other}\n\n=== KREDITNE KARTICE ===\nUkupno CC: €${d.cc_total}\n\n=== GOTOVINA ===\nUkupno gotovina: €${d.cash_total}\n\n=== CITY LEDGER ===\nKorporativna fakturiranja: €${d.city_ledger_total}\n\n=== STORNO I POPUSTI ===\n${d.void_comp_data}\n\nIzvrši kompletno usklađivanje i reviziju.`;\n\nreturn [{\n  json: {\n    ...d,\n    recon_request: {\n      model: 'kimi-k2.5',\n      max_tokens: 2000,\n      thinking: { type: 'disabled' },\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user', content: userPrompt }\n      ]\n    }\n  }\n}];"
+      },
+      "id": "24db308e-0f3f-41f6-96ff-312e3a53ffdb",
+      "name": "Code - Build Recon Input (Prompt 15)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.MOONSHOT_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.recon_request) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "d0377369-ad85-4dd8-907e-abbd0e90662f",
+      "name": "AI - Revenue Reconciliation (Prompt 15)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1408,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ircrqFbA5nzR0ppe",
+          "name": "Header Auth account"
+        }
+      },
+      "notes": "NEW: Third Kimi call — runs Prompt 15 for nightly revenue reconciliation"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Prompt 15 result\nconst response = $input.first().json;\nconst content = response.choices[0].message.content;\nlet recon;\ntry {\n  recon = JSON.parse(content.replace(/```json|```/g, '').trim());\n} catch(e) {\n  recon = {\n    business_date: new Date().toISOString().split('T')[0],\n    reconciliation_status: 'Pending Data',\n    total_revenue: 0, total_collections: 0, discrepancy_amount: 0,\n    revenue_breakdown: { rooms: 0, fb: 0, other: 0 },\n    collections_breakdown: { credit_card: 0, cash: 0, city_ledger: 0 },\n    void_comp_audit: { total_voids: 0, total_comps: 0, total_amount: 0, flags: [], all_authorized: true },\n    noshow_audit: { total_noshows: 0, all_charged: true, uncharged: [], total_noshow_revenue: 0 },\n    anomalies: [],\n    ai_summary: 'Greška u parsiranju Prompt 15: ' + e.message,\n    requires_attention: true,\n    attention_items: ['Provjeriti Prompt 15 output format']\n  };\n}\n\n// Get the aggregate data (which includes anomaly_result) from upstream\nconst agg = $('Code - Build Recon Input (Prompt 15)').first().json;\n\nreturn [{ json: { ...agg, recon_result: recon } }];"
+      },
+      "id": "27de1e99-f9a6-48d3-a247-024fe64a9034",
+      "name": "Code - Parse Recon Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine Prompt 8 (anomaly) + Prompt 15 (reconciliation) into one Slack report\nconst data = $input.first().json;\nconst anomaly = data.anomaly_result;\nconst recon = data.recon_result;\n\nlet report = '🔍 *NOĆNI SCAN — ' + data.scan_date + '*\\n\\n';\n\n// ===== SECTION 1: Anomaly Detection =====\nreport += '━━━ ANOMALIJE (Prompt 8) ━━━\\n';\nif (anomaly.all_clear) {\n  report += '✅ Sve čisto — nema detektovanih anomalija.\\n';\n  if (anomaly.summary) report += anomaly.summary + '\\n';\n} else {\n  report += '⚠️ ' + anomaly.anomalies_found + ' anomalija detektovano:\\n\\n';\n  for (const a of (anomaly.anomalies || [])) {\n    const icon = a.severity === 'HIGH' ? '🔴' : a.severity === 'MEDIUM' ? '🟡' : '🟢';\n    report += icon + ' *' + a.type + '* — ' + a.description + '\\n  Akcija: ' + a.recommended_action + '\\n\\n';\n  }\n  if (anomaly.summary) report += anomaly.summary + '\\n';\n}\n\n// ===== SECTION 2: Revenue Reconciliation =====\nreport += '\\n━━━ NOĆNI AUDIT (Prompt 15) ━━━\\n';\nconst statusIcon = recon.reconciliation_status === 'Balanced' ? '✅' :\n  recon.reconciliation_status === 'Minor Discrepancy' ? '🟡' : '🔴';\n\nreport += statusIcon + ' Status: *' + recon.reconciliation_status + '*\\n';\nreport += '   Prihod: €' + (recon.total_revenue || 0).toLocaleString('de-DE', {minimumFractionDigits: 2}) + \n  ' | Naplata: €' + (recon.total_collections || 0).toLocaleString('de-DE', {minimumFractionDigits: 2}) + '\\n';\n\nif (recon.discrepancy_amount > 0) {\n  report += '   Razlika: €' + recon.discrepancy_amount.toLocaleString('de-DE', {minimumFractionDigits: 2}) + '\\n';\n}\n\nif (recon.void_comp_audit && !recon.void_comp_audit.all_authorized) {\n  report += '\\n🔍 *SUMNJIVI STORNO/POPUSTI:*\\n';\n  for (const flag of (recon.void_comp_audit.flags || [])) {\n    report += '   • ' + flag + '\\n';\n  }\n}\n\nif (recon.noshow_audit && !recon.noshow_audit.all_charged) {\n  report += '\\n⚠️ *NENAPLAĆENI NO-SHOW:*\\n';\n  for (const ns of (recon.noshow_audit.uncharged || [])) {\n    report += '   • ' + ns + '\\n';\n  }\n}\n\nif (recon.ai_summary) {\n  report += '\\n' + recon.ai_summary + '\\n';\n}\n\nif (recon.requires_attention && (recon.attention_items || []).length > 0) {\n  report += '\\n📋 *POTREBNE AKCIJE:*\\n';\n  for (const item of recon.attention_items) {\n    report += '   • ' + item + '\\n';\n  }\n}\n\n// Tag people if issues found\nconst hasIssues = !anomaly.all_clear || recon.requires_attention || recon.reconciliation_status !== 'Balanced';\nif (hasIssues) {\n  report += '\\n@zoran';\n}\n\n// Build audit trail entry\nconst auditDetails = [];\nif (!anomaly.all_clear) auditDetails.push(anomaly.anomalies_found + ' anomalija');\nauditDetails.push('Recon: ' + recon.reconciliation_status);\nif (recon.discrepancy_amount > 0) auditDetails.push('Razlika: €' + recon.discrepancy_amount.toFixed(2));\n\nconst auditBody = JSON.stringify({ records: [{ fields: {\n  reference_id: 'ANOMALY-' + data.scan_date,\n  event_type: 'ANOMALY_DETECTED',\n  actor: 'System',\n  details: auditDetails.join('. ')\n} }] });\n\nreturn [{ json: {\n  report_text: report,\n  audit_body: auditBody,\n  has_issues: hasIssues,\n  recon_result: recon,\n  business_date: data.business_date\n} }];"
+      },
+      "id": "b5ae5eb2-025e-4152-95d0-8e3ec237aacc",
+      "name": "Code - Combine & Format Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1856,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Revenue_Reconciliation",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ fields: { recon_id: 'RECON-' + $json.business_date, business_date: $json.business_date, total_revenue: $json.recon_result.total_revenue || 0, total_collections: $json.recon_result.total_collections || 0, discrepancy_amount: $json.recon_result.discrepancy_amount || 0, reconciliation_status: $json.recon_result.reconciliation_status || 'Pending Data', revenue_rooms: ($json.recon_result.revenue_breakdown || {}).rooms || 0, revenue_fb: ($json.recon_result.revenue_breakdown || {}).fb || 0, revenue_other: ($json.recon_result.revenue_breakdown || {}).other || 0, collections_cc: ($json.recon_result.collections_breakdown || {}).credit_card || 0, collections_cash: ($json.recon_result.collections_breakdown || {}).cash || 0, collections_city_ledger: ($json.recon_result.collections_breakdown || {}).city_ledger || 0, void_comp_count: (($json.recon_result.void_comp_audit || {}).total_voids || 0) + (($json.recon_result.void_comp_audit || {}).total_comps || 0), void_comp_amount: ($json.recon_result.void_comp_audit || {}).total_amount || 0, noshow_count: ($json.recon_result.noshow_audit || {}).total_noshows || 0, noshow_revenue: ($json.recon_result.noshow_audit || {}).total_noshow_revenue || 0, ai_summary: $json.recon_result.ai_summary || '', anomalies_detected: ($json.recon_result.anomalies || []).map(a => a.description || a).join('; '), requires_attention: $json.recon_result.requires_attention || false, attention_items: ($json.recon_result.attention_items || []).join('; ') } }] }) }}",
+        "options": {}
+      },
+      "id": "1dbe13ed-20bb-4963-9344-983b1806e2d3",
+      "name": "Airtable - Write Revenue_Reconciliation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        320
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      },
+      "notes": "NEW: Writes tonight's reconciliation result to Revenue_Reconciliation table for WF09 morning flash report to read"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#all-n8n-workflows",
+          "mode": "name"
+        },
+        "text": "={{ $('Code - Combine & Format Report').first().json.report_text }}",
+        "otherOptions": {}
+      },
+      "id": "20222a08-712b-489e-955d-e323f53b8ee2",
+      "name": "Slack - Post Report",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        2304,
+        320
+      ],
+      "webhookId": "b59b5e29-73b6-410f-8dff-e068df586c9b",
+      "credentials": {
+        "slackApi": {
+          "id": "B9JDVWc1VzFbt3qg",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { audit_body: $('Code - Combine & Format Report').first().json.audit_body } }];"
+      },
+      "id": "8245baf2-d832-4450-b9fa-04b287bedea2",
+      "name": "Code - Prep Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2528,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appjHlTQID87ODAJL/Audit_Trail",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.audit_body }}",
+        "options": {}
+      },
+      "id": "fb813f14-48a7-425c-a0b8-3a2601e7f5d6",
+      "name": "Airtable - Audit Trail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2752,
+        320
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "dmzc6SYrfINDEidP",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron - 10PM Nightly Scan": {
+      "main": [
+        [
+          {
+            "node": "Airtable - POs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking \"Test workflow\"": {
+      "main": [
+        [
+          {
+            "node": "Airtable - POs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - POs": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Invoices": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Inventory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Inventory": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Budgets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Budgets": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Occupancy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Occupancy": {
+      "main": [
+        [
+          {
+            "node": "Code - Aggregate Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Aggregate Data": {
+      "main": [
+        [
+          {
+            "node": "AI - Anomaly Detection (Prompt 8)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Anomaly Detection (Prompt 8)": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Anomaly Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Anomaly Result": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Recon Input (Prompt 15)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Recon Input (Prompt 15)": {
+      "main": [
+        [
+          {
+            "node": "AI - Revenue Reconciliation (Prompt 15)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Revenue Reconciliation (Prompt 15)": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Recon Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Recon Result": {
+      "main": [
+        [
+          {
+            "node": "Code - Combine & Format Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Combine & Format Report": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Write Revenue_Reconciliation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable - Write Revenue_Reconciliation": {
+      "main": [
+        [
+          {
+            "node": "Slack - Post Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Post Report": {
+      "main": [
+        [
+          {
+            "node": "Code - Prep Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prep Audit": {
+      "main": [
+        [
+          {
+            "node": "Airtable - Audit Trail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "863000fc-6463-4714-b1a3-ed3f478bfcda",
+  "activeVersionId": null,
+  "versionCounter": 9,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T00:23:46.737Z",
+      "createdAt": "2026-04-12T00:23:46.737Z",
+      "role": "workflow:editor",
+      "workflowId": "7UCet4uWOFGCnUG6",
+      "projectId": "HrpDc1ssnzGYkrfd",
+      "project": {
+        "updatedAt": "2026-04-12T00:20:42.820Z",
+        "createdAt": "2026-04-11T23:31:23.053Z",
+        "id": "HrpDc1ssnzGYkrfd",
+        "name": "Vineet Mahesh <vineetsmahesh@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "1638baa0-b04e-4e73-adbd-bc0344c08f72"
+      }
+    },
+    {
+      "updatedAt": "2026-04-10T19:26:09.717Z",
+      "createdAt": "2026-04-10T19:26:09.717Z",
+      "role": "workflow:owner",
+      "workflowId": "7UCet4uWOFGCnUG6",
+      "projectId": "nQLg5vxUpkDOoZen",
+      "project": {
+        "updatedAt": "2026-04-08T19:38:42.645Z",
+        "createdAt": "2026-04-08T19:38:36.540Z",
+        "id": "nQLg5vxUpkDOoZen",
+        "name": "Martin Cupic <n1815764@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "f0647ec0-4a74-4ab4-98d4-06d5e41a50c3"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-04-10T19:25:43.930Z",
+      "createdAt": "2026-04-10T19:25:43.930Z",
+      "id": "o5ytOnuGSjE5aTmV",
+      "name": "procurement"
+    }
+  ],
+  "activeVersion": null
+}
