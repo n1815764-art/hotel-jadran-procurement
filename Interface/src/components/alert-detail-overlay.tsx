@@ -5,7 +5,11 @@ import { ArrowLeft } from "lucide-react";
 import type { Alert, InventoryItem, Invoice, PurchaseOrder } from "@/types";
 import {
   cn,
+  severityAccent,
   severityColor,
+  severityIcon,
+  severityLabel,
+  severityTextColor,
   formatEUR,
   formatDateTime,
   formatDate,
@@ -60,19 +64,8 @@ export function AlertDetailOverlay({ alert, onClose, inventory, invoices, purcha
 
   if (!alert) return null;
 
-  const severityLabel = {
-    critical: "CRITICAL",
-    warning: "WARNING",
-    approval: "APPROVAL",
-    info: "INFO",
-  }[alert.severity] ?? alert.severity.toUpperCase();
-
-  const severityTextColor = {
-    critical: "text-red-400",
-    warning: "text-amber-400",
-    approval: "text-blue-400",
-    info: "text-zinc-400",
-  }[alert.severity] ?? "text-zinc-400";
+  const label = severityLabel(alert.severity);
+  const textColor = severityTextColor(alert.severity);
 
   return (
     <div
@@ -91,8 +84,8 @@ export function AlertDetailOverlay({ alert, onClose, inventory, invoices, purcha
           Back
         </button>
         <div className="h-4 w-px bg-zinc-700" />
-        <span className={cn("text-xs font-bold mono tracking-widest", severityTextColor)}>
-          {severityLabel}
+        <span className={cn("text-xs font-bold mono tracking-widest", textColor)}>
+          {label}
         </span>
         <span className="text-sm font-semibold text-zinc-200">{alert.title}</span>
         <span className="text-[10px] text-zinc-600 mono ml-auto">{alert.workflow_id}</span>
@@ -104,13 +97,16 @@ export function AlertDetailOverlay({ alert, onClose, inventory, invoices, purcha
         <div className="p-6 lg:border-r border-zinc-800 space-y-5">
           <div>
             <p className="text-xs uppercase tracking-wider text-zinc-500 mb-2">Alert Details</p>
-            <div className={cn("rounded-lg border p-4 space-y-3", severityColor(alert.severity))}>
+            <div
+              className={cn(
+                "rounded-lg border p-4 space-y-3",
+                severityColor(alert.severity),
+                severityAccent(alert.severity)
+              )}
+            >
               <div className="flex items-start gap-3">
-                <span className="text-2xl leading-none mt-0.5">
-                  {alert.severity === "critical" && "🚨"}
-                  {alert.severity === "warning" && "⚠️"}
-                  {alert.severity === "approval" && "📋"}
-                  {alert.severity === "info" && "ℹ️"}
+                <span className={cn("text-2xl leading-none mt-0.5", textColor)} aria-hidden>
+                  {severityIcon(alert.severity)}
                 </span>
                 <div>
                   <p className="text-base font-semibold text-zinc-100 mb-1">{alert.title}</p>
@@ -122,7 +118,7 @@ export function AlertDetailOverlay({ alert, onClose, inventory, invoices, purcha
 
           <div className="grid grid-cols-2 gap-3">
             <MetaField label="Alert ID" value={alert.id} mono />
-            <MetaField label="Severity" value={severityLabel} colored={severityTextColor} />
+            <MetaField label="Severity" value={label} colored={textColor} />
             <MetaField label="Workflow" value={alert.workflow_id} mono />
             <MetaField label="Triggered" value={formatDateTime(alert.timestamp)} />
             {alert.reference_id && (

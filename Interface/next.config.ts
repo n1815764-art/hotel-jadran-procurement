@@ -1,10 +1,10 @@
 import type { NextConfig } from "next";
-import { resolve } from "path";
 
 const nextConfig: NextConfig = {
   turbopack: {
-    root: resolve(__dirname),
+    root: "/Users/agent0/Documents/Replacement/Interface",
   },
+  outputFileTracingRoot: "/Users/agent0/Documents/Replacement/Interface",
 };
 
 export default nextConfig;

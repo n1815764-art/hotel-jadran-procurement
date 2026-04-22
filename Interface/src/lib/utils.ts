@@ -108,11 +108,11 @@ export function severityColor(severity: string): string {
     case "warning":
       return "border-amber-500 bg-amber-500/10";
     case "approval":
-      return "border-blue-500 bg-blue-500/10";
+      return "border-emerald-500 bg-emerald-500/10";
     case "info":
-      return "border-zinc-600 bg-zinc-800/50";
+      return "border-zinc-700 bg-zinc-900/50";
     default:
-      return "border-zinc-600 bg-zinc-800/50";
+      return "border-zinc-700 bg-zinc-900/50";
   }
 }
 
@@ -123,11 +123,57 @@ export function severityIcon(severity: string): string {
     case "warning":
       return "\u26A0\uFE0F";
     case "approval":
-      return "\uD83D\uDCCB";
+      return "\u2705";
     case "info":
       return "\u2139\uFE0F";
     default:
       return "\u2139\uFE0F";
+  }
+}
+
+// Left accent: applied to all non-info severities, never to info.
+// Non-info events carry an action for the user; info events are FYI.
+export function severityAccent(severity: string): string {
+  switch (severity) {
+    case "critical":
+      return "border-l-4 border-l-red-500";
+    case "warning":
+      return "border-l-4 border-l-amber-500";
+    case "approval":
+      return "border-l-4 border-l-emerald-500";
+    case "info":
+    default:
+      return "";
+  }
+}
+
+export function severityTextColor(severity: string): string {
+  switch (severity) {
+    case "critical":
+      return "text-red-400";
+    case "warning":
+      return "text-amber-400";
+    case "approval":
+      return "text-emerald-400";
+    case "info":
+      return "text-zinc-400";
+    default:
+      return "text-zinc-400";
+  }
+}
+
+export function severityLabel(severity: string): string {
+  switch (severity) {
+    case "critical":
+      return "CRITICAL";
+    case "warning":
+      return "WARNING";
+    case "approval":
+      return "APPROVED";
+    case "info":
+      return "INFO";
+    default:
+      return severity.toUpperCase();
   }
 }
 
