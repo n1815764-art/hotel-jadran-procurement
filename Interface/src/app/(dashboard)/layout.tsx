@@ -1,5 +1,3 @@
-"use client";
-
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { ProcurementChatbot } from "@/components/procurement-chatbot";
 import { Toaster } from "@/components/ui/toaster";

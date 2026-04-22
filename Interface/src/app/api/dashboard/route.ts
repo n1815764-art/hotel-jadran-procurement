@@ -53,8 +53,8 @@ export async function GET() {
   }
 
   try {
-    // Fetch all tables in parallel
-    const [auditRecords, poRecords, invoiceRecords, inventoryRecords] = await Promise.all([
+    // Fetch all tables in parallel — failures return empty arrays instead of crashing
+    const [auditResult, poResult, invoiceResult, inventoryResult] = await Promise.allSettled([
       atFetch("Audit_Trail"),
       atFetch("PO_Log", {
         "sort[0][field]": "po_date",
@@ -63,6 +63,18 @@ export async function GET() {
       atFetch("Invoice Log"),
       atFetch("Sample Inventory with Par Levels"),
     ]);
+
+    const tableErrors: string[] = [];
+    function unwrap<T>(result: PromiseSettledResult<T[]>, tableName: string): T[] {
+      if (result.status === "fulfilled") return result.value;
+      tableErrors.push(`${tableName}: ${result.reason}`);
+      return [];
+    }
+
+    const auditRecords = unwrap(auditResult, "Audit_Trail");
+    const poRecords = unwrap(poResult, "PO_Log");
+    const invoiceRecords = unwrap(invoiceResult, "Invoice Log");
+    const inventoryRecords = unwrap(inventoryResult, "Sample Inventory with Par Levels");
     // Sort both by createdTime descending in code — Airtable's timestamp field is unpopulated
     // and createdTime is not a valid sort param in the API
     auditRecords.sort((a, b) => b.createdTime.localeCompare(a.createdTime));
@@ -237,6 +249,7 @@ export async function GET() {
       allPOs,
       invoices,
       inventory: inventoryItems,
+      tableErrors: tableErrors.length > 0 ? tableErrors : undefined,
       kpi: {
         pendingPOsCount: pendingPOs.length,
         todayPOsCount: todayPOs.length,

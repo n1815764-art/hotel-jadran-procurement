@@ -295,8 +295,12 @@ function auditToAlert(entry: AuditEntry): Alert | null {
 
 export class AirtableDataService implements DataService {
   async getVendors(): Promise<Vendor[]> {
-    const records = await fetchTable(TABLES.VENDORS);
-    return records.map(mapVendor);
+    try {
+      const records = await fetchTable(TABLES.VENDORS);
+      return records.map(mapVendor);
+    } catch {
+      return [];
+    }
   }
 
   async getVendorById(id: string): Promise<Vendor | undefined> {
@@ -391,7 +395,6 @@ export class AirtableDataService implements DataService {
   async getInvoices(status?: string): Promise<Invoice[]> {
     const params: Record<string, string> = {};
     if (status && status !== "All") {
-      // Map our display values back to Airtable values
       const reverseStatusMap: Record<string, string> = {
         "Perfect Match": "PERFECT_MATCH",
         Minor: "MINOR_DISCREPANCY",
@@ -402,8 +405,12 @@ export class AirtableDataService implements DataService {
       const atStatus = reverseStatusMap[status] || status;
       params["filterByFormula"] = `{match_status} = "${atStatus}"`;
     }
-    const records = await fetchTable(TABLES.INVOICE_LOG, params);
-    return records.map(mapInvoice);
+    try {
+      const records = await fetchTable(TABLES.INVOICE_LOG, params);
+      return records.map(mapInvoice);
+    } catch {
+      return [];
+    }
   }
 
   async getInvoiceById(id: string): Promise<Invoice | undefined> {
@@ -412,8 +419,12 @@ export class AirtableDataService implements DataService {
   }
 
   async getInventory(): Promise<InventoryItem[]> {
-    const records = await fetchTable(TABLES.INVENTORY);
-    return records.map(mapInventory);
+    try {
+      const records = await fetchTable(TABLES.INVENTORY);
+      return records.map(mapInventory);
+    } catch {
+      return [];
+    }
   }
 
   async getInventoryAlerts(): Promise<InventoryItem[]> {
@@ -490,8 +501,12 @@ export class AirtableDataService implements DataService {
   }
 
   async getContracts(): Promise<Contract[]> {
-    const records = await fetchTable(TABLES.VENDOR_CONTRACTS);
-    return records.map(mapContract);
+    try {
+      const records = await fetchTable(TABLES.VENDOR_CONTRACTS);
+      return records.map(mapContract);
+    } catch {
+      return [];
+    }
   }
 
   async getAuditTrail(filters?: AuditFilters): Promise<AuditEntry[]> {
@@ -519,11 +534,15 @@ export class AirtableDataService implements DataService {
   }
 
   async getOccupancyForecast(): Promise<OccupancyForecast[]> {
-    const records = await fetchTable(TABLES.OCCUPANCY, {
-      "sort[0][field]": "Date",
-      "sort[0][direction]": "asc",
-    });
-    return records.map(mapOccupancy);
+    try {
+      const records = await fetchTable(TABLES.OCCUPANCY, {
+        "sort[0][field]": "Date",
+        "sort[0][direction]": "asc",
+      });
+      return records.map(mapOccupancy);
+    } catch {
+      return [];
+    }
   }
 
   async getAlerts(): Promise<Alert[]> {
@@ -609,8 +628,12 @@ export class AirtableDataService implements DataService {
   }
 
   async getGLMappings(): Promise<GLMapping[]> {
-    const records = await fetchTable(TABLES.GL_MAPPING);
-    return records.map(mapGL);
+    try {
+      const records = await fetchTable(TABLES.GL_MAPPING);
+      return records.map(mapGL);
+    } catch {
+      return [];
+    }
   }
 
   async submitRequisition(data: RequisitionInput): Promise<{ requisition_id: string }> {

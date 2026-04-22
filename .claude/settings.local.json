@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(npm run:*)",
+      "Bash(echo \"Started dev server in background \\(PID: $!\\)\")",
+      "Bash(gh pr:*)",
+      "Bash(curl -s \"https://api.github.com/repos/n1815764-art/hotel-jadran-procurement/pulls?state=all\")",
+      "Bash(python3 -c \"import sys,json; prs=json.load\\(sys.stdin\\); [print\\(f'#{p[\\\\\"number\\\\\"]} [{p[\\\\\"state\\\\\"]}] {p[\\\\\"title\\\\\"]} — {p[\\\\\"user\\\\\"][\\\\\"login\\\\\"]} → {p[\\\\\"base\\\\\"][\\\\\"ref\\\\\"]}'\\) for p in prs] if prs else print\\('No pull requests found.'\\)\")",
+      "Bash(docker compose:*)",
+      "Bash(clear:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool)",
+      "Bash(python -c ':*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(netstat -ano)",
+      "Bash(cmd:*)",
+      "Bash(git fetch *)",
+      "Bash(git merge *)",
+      "Bash(git branch *)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('HTTP OK'\\); print\\('tableErrors:', d.get\\('tableErrors'\\)\\); print\\('KPI:', d.get\\('kpi'\\)\\); print\\('invoices count:', len\\(d.get\\('invoices', []\\)\\)\\); print\\('POs count:', len\\(d.get\\('allPOs', []\\)\\)\\)\")",
+      "Bash(git stash *)",
+      "Bash(taskkill *)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(node *)"
+    ]
+  }
+}
