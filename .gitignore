@@ -4,7 +4,12 @@
 .env.local
 .DS_Store
 node_modules/
+node_modules
 .next/
+
+# Temp test artifacts (saved n8n pages, scratch files, etc.)
+⚠️ TEMP*
+
 out/
 *.tsbuildinfo
 next-env.d.ts
