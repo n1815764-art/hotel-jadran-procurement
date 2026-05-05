@@ -175,6 +175,7 @@ export interface AuditEntry extends AirtableRecord {
 export type AuditEventType =
   | "PO_CREATED"
   | "PO_APPROVED"
+  | "PO_MODIFIED"
   | "PO_REJECTED"
   | "PAYMENT_BATCH_APPROVED"
   | "PAYMENT_BATCH_REJECTED"
@@ -263,6 +264,19 @@ export interface PaymentBatch extends AirtableRecord {
   approved_by: string | null;
   approval_date: string | null;
   ai_note: string;
+  batch_date?: string;
+  due_date_cutoff?: string;
+  payment_method?: string;
+  invoices?: BatchInvoice[];
+  notes?: string;
+}
+
+export interface BatchInvoice {
+  vendor_name: string;
+  invoice_number: string;
+  amount: number;
+  due_date: string;
+  po_number?: string;
 }
 
 export type PaymentBatchStatus =
@@ -271,3 +285,31 @@ export type PaymentBatchStatus =
   | "Paid"
   | "Rejected"
   | "Cancelled";
+
+// ============================================================
+// AR Aging (WF15 — AR Ledger)
+// ============================================================
+
+export interface ARLedgerEntry extends AirtableRecord {
+  ar_id: string;
+  client_name: string;
+  client_email: string;
+  client_type: string;
+  invoice_number: string;
+  invoice_date: string;
+  due_date: string;
+  amount: number;
+  amount_paid: number;
+  balance: number;
+  status: string;
+  payment_terms?: string;
+  po_numbers?: string;
+  days_overdue: number;
+  alert_30_sent: boolean;
+  alert_60_sent: boolean;
+  alert_90_sent: boolean;
+  last_contact_date?: string;
+  department: string;
+  gl_account: string;
+  notes?: string;
+}

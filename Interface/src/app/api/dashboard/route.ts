@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import type { Alert, PurchaseOrder, InventoryItem, Invoice } from "@/types";
+import type { Alert, AuditEntry, AuditEventType, PurchaseOrder, InventoryItem, Invoice } from "@/types";
+import {
+  buildAlertMessage,
+  severityForEvent,
+  titleForEvent,
+  workflowForEvent,
+  EVENT_SEVERITY,
+} from "@/lib/alert-messages";
 
 const PAT = process.env.AIRTABLE_PAT;
 const BASE = process.env.AIRTABLE_BASE_ID || "appjHlTQID87ODAJL";
@@ -71,12 +78,31 @@ export async function GET() {
     // ── Build alerts from audit trail ──────────────────────────
     // Statuses that require no action — suppress from alerts panel
     const SILENT_PREFIXES = ["PERFECT_MATCH", "AUTO_APPROVED", "MINOR_DISCREPANCY"];
-    const SILENT_EVENT_TYPES = ["REPORT_GENERATED", "DEMAND_FORECAST"];
+    const SILENT_EVENT_TYPES: string[] = ["REPORT_GENERATED", "DEMAND_FORECAST"];
+
+    // Workflow labels for event_types that are not in the shared EVENT_TO_WORKFLOW map
+    // (AR reminders, anomaly variants, raw-string event types from older workflows).
+    const EXTRA_WORKFLOW_LABELS: Record<string, string> = {
+      "Invoice_Matched":       "WF-02 OCR / Match",
+      "Invoice Matched":       "WF-02 OCR / Match",
+      "Approved":              "WF-04 AI Validation",
+      "ANOMALY DETECTED":      "WF-13 Anomaly Detection",
+      "AR_REMINDER_30_SENT":   "WF-AR Reminders",
+      "AR_REMINDER_60_SENT":   "WF-AR Reminders",
+      "AR_REMINDER_90_SENT":   "WF-AR Reminders",
+    };
+
+    // Coerce free-form event_type strings into our canonical AuditEventType union.
+    // Anything not in EVENT_SEVERITY is left for the fallback branch below.
+    function normaliseEventType(raw: string): AuditEventType | null {
+      const upper = raw.trim().toUpperCase().replace(/\s+/g, "_");
+      if (upper in EVENT_SEVERITY) return upper as AuditEventType;
+      return null;
+    }
 
     const alerts: Alert[] = auditRecords
       .flatMap((rec) => {
         const rawDetails = str(rec.fields.details);
-        const details = rawDetails.toLowerCase();
         const eventType = str(rec.fields.event_type);
 
         // Drop records with no title
@@ -85,7 +111,7 @@ export async function GET() {
         // Drop silent event types (reports, forecasts)
         if (SILENT_EVENT_TYPES.includes(eventType)) return [];
 
-        // Drop invoice-matched records that resolved cleanly (event_type may use spaces or underscores)
+        // Drop invoice-matched records that resolved cleanly
         const isInvoiceMatch = eventType.toLowerCase().replace(/_/g, " ") === "invoice matched";
         if (
           isInvoiceMatch &&
@@ -95,53 +121,81 @@ export async function GET() {
         // Drop broken n8n template-literal messages (unfilled {{$json.*}} vars)
         if (rawDetails.includes("{{ $json.")) return [];
 
-        let severity: Alert["severity"] = "info";
-        if (
-          details.includes("negativan") ||
-          details.includes("negative") ||
-          details.includes("blocked") ||
-          details.includes("blokiran")
-        ) {
-          severity = "critical";
-        } else if (
-          details.startsWith("dispute_required") ||
-          details.includes("dispute") ||
-          details.includes("sporn") ||
-          details.includes("odstupanje") ||
-          details.includes("discrepancy") ||
-          details.includes("ghost") ||
-          details.includes("mismatch")
-        ) {
-          severity = "warning";
-        } else if (
-          details.includes("pending") ||
-          details.includes("approval") ||
-          details.includes("odobrenje")
-        ) {
-          severity = "approval";
+        const canonical = normaliseEventType(eventType);
+        const referenceId = str(rec.fields.reference_id) || undefined;
+
+        // Construct an AuditEntry so buildAlertMessage can fall back when details is empty
+        const amount = num(rec.fields.amount);
+        const auditEntry: AuditEntry = {
+          event_id: rec.id,
+          timestamp: str(rec.fields.timestamp) || rec.createdTime,
+          event_type: (canonical ?? (eventType as AuditEventType)),
+          actor: str(rec.fields.actor),
+          reference_id: referenceId ?? "",
+          details: rawDetails,
+          amount: amount || undefined,
+        };
+
+        let severity: Alert["severity"];
+        let title: string;
+        let workflowId: string;
+
+        if (canonical) {
+          severity = severityForEvent(canonical);
+          title = titleForEvent(canonical);
+          workflowId = workflowForEvent(canonical);
+        } else {
+          // Non-canonical event types (e.g. AR_REMINDER_30_SENT) — derive severity
+          // from details keywords, title from humanised event_type, and workflow
+          // from the explicit label table with a fallback.
+          const details = rawDetails.toLowerCase();
+          if (
+            details.includes("negativan") ||
+            details.includes("negative") ||
+            details.includes("blocked") ||
+            details.includes("blokiran")
+          ) {
+            severity = "critical";
+          } else if (
+            details.startsWith("dispute_required") ||
+            details.includes("dispute") ||
+            details.includes("sporn") ||
+            details.includes("odstupanje") ||
+            details.includes("discrepancy") ||
+            details.includes("ghost") ||
+            details.includes("mismatch")
+          ) {
+            severity = "warning";
+          } else if (
+            details.includes("pending") ||
+            details.includes("approval") ||
+            details.includes("odobrenje")
+          ) {
+            severity = "approval";
+          } else {
+            severity = "info";
+          }
+          title = eventType.replace(/_/g, " ");
+          workflowId = EXTRA_WORKFLOW_LABELS[eventType] ?? eventType.replace(/_/g, " ");
         }
 
-        // Map event_type to the n8n workflow that generates it
-        const workflowMap: Record<string, string> = {
-          "Invoice_Matched":   "WF-02 OCR / Match",
-          "Invoice Matched":   "WF-02 OCR / Match",
-          "Approved":          "WF-04 AI Validation",
-          "ANOMALY_DETECTED":  "WF-13 Anomaly Detection",
-          "ANOMALY DETECTED":  "WF-13 Anomaly Detection",
-          "AR_REMINDER_30_SENT": "WF-AR Reminders",
-          "AR_REMINDER_60_SENT": "WF-AR Reminders",
-          "AR_REMINDER_90_SENT": "WF-AR Reminders",
-        };
-        const workflow_id = workflowMap[eventType] ?? eventType.replace(/_/g, " ");
+        // Guarantee the body is never empty — buildAlertMessage synthesises a
+        // BCS fallback from event_type + reference_id + amount when details is blank.
+        const message = buildAlertMessage(auditEntry);
+        if (process.env.NODE_ENV !== "production" && !rawDetails) {
+          console.warn(
+            `[dashboard] audit ${rec.id} (${eventType}) had empty details — using fallback`
+          );
+        }
 
         return [{
           id: rec.id,
           severity,
-          title: eventType.replace(/_/g, " "),
-          message: rawDetails,
+          title,
+          message,
           timestamp: rec.createdTime,
-          workflow_id,
-          reference_id: str(rec.fields.reference_id) || undefined,
+          workflow_id: workflowId,
+          reference_id: referenceId,
         } satisfies Alert];
       })
       .slice(0, 100);

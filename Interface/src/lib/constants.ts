@@ -24,6 +24,10 @@ export const STAFF: StaffMember[] = [
   { name: "Biljana", department: "Housekeeping", pin: "5678" },
   { name: "Filip", department: "IT", pin: "9012" },
   { name: "Zoran Radonjic", department: "Finansije", pin: "3456" },
+  { name: "Marko", department: "Bar", pin: "2222" },
+  { name: "Ivana", department: "Maintenance", pin: "3333" },
+  { name: "Ana", department: "Spa", pin: "4444" },
+  { name: "Senad", department: "Admin", pin: "5555" },
 ];
 
 export const DEPARTMENTS = [

@@ -2,6 +2,7 @@ import type {
   Vendor,
   VendorScorecard,
   PurchaseOrder,
+  POLineItem,
   Invoice,
   InventoryItem,
   ReceivingRecord,
@@ -15,6 +16,7 @@ import type {
   IntegrationStatus,
   GLMapping,
   PaymentBatch,
+  ARLedgerEntry,
 } from "@/types";
 
 export interface DataService {
@@ -26,7 +28,15 @@ export interface DataService {
   getPurchaseOrderByNumber(poNumber: string): Promise<PurchaseOrder | undefined>;
   updatePurchaseOrderStatus(poNumber: string, status: string, approvedBy?: string): Promise<void>;
 
+  modifyPurchaseOrder(params: ModifyPurchaseOrderInput): Promise<ModifyPurchaseOrderResult>;
+
+  checkAutoReorderStatus(itemId: string): Promise<AutoReorderStatus>;
+
+  getDepartmentBudget(department: string): Promise<DepartmentBudget>;
+
   getPaymentBatches(filters?: { status?: string }): Promise<PaymentBatch[]>;
+
+  getARLedger(filters?: { status?: string; minDaysOverdue?: number }): Promise<ARLedgerEntry[]>;
 
   getInvoices(status?: string): Promise<Invoice[]>;
   getInvoiceById(id: string): Promise<Invoice | undefined>;
@@ -67,6 +77,27 @@ export interface RequisitionInput {
   urgency: string;
   requester: string;
   justification?: string;
+  // Optional client-generated id; if present, the service must pass it through
+  // verbatim (the form shows it on the confirmation screen the moment it submits).
+  requisition_id?: string;
+  item_id?: string;
+  ai_suggested_quantity?: number;
+  ai_suggestion_accepted?: boolean;
+}
+
+export interface AutoReorderStatus {
+  covered: boolean;
+  scheduled_date?: string;
+  scheduled_quantity?: number;
+  reasoning?: string;
+}
+
+export interface DepartmentBudget {
+  department: string;
+  monthly_budget: number;
+  spent_mtd: number;
+  remaining: number;
+  pct_used: number;
 }
 
 export interface AuditFilters {
@@ -75,4 +106,19 @@ export interface AuditFilters {
   date_from?: string;
   date_to?: string;
   reference_id?: string;
+}
+
+export interface ModifyPurchaseOrderInput {
+  po_number: string;
+  record_id: string;
+  modified_items: POLineItem[];
+  original_items: POLineItem[];
+  modified_by: string;
+}
+
+export interface ModifyPurchaseOrderResult {
+  success: boolean;
+  new_total: number;
+  diff_summary: string;
+  error?: string;
 }

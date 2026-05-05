@@ -131,7 +131,7 @@ export default function PrijemPage() {
 
   const currentItem = receivingItems[currentItemIndex];
 
-  // Step 0: Welcome — single "Prijem" entry point
+  // Step 0: Welcome — entry points (Prijem + Novi zahtjev)
   if (receivingStep === 0) {
     return (
       <div className="space-y-6 pt-12">
@@ -149,6 +149,12 @@ export default function PrijemPage() {
         >
           Zapocni prijem
         </button>
+        <a
+          href="/zahtjev"
+          className="w-full touch-target bg-white border-2 border-blue-200 rounded-2xl p-5 text-center font-bold text-blue-600 text-xl block active:bg-blue-50 transition-colors"
+        >
+          Novi zahtjev
+        </a>
       </div>
     );
   }

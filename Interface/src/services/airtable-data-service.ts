@@ -16,8 +16,19 @@ import type {
   IntegrationStatus,
   GLMapping,
   PaymentBatch,
+  BatchInvoice,
+  ARLedgerEntry,
 } from "@/types";
-import type { DataService, AuditFilters, RequisitionInput } from "./data-service";
+import type {
+  DataService,
+  AuditFilters,
+  ModifyPurchaseOrderInput,
+  ModifyPurchaseOrderResult,
+  AutoReorderStatus,
+  DepartmentBudget,
+  RequisitionInput,
+} from "./data-service";
+import { buildBcsDiffSummary, totalFor } from "@/lib/po-diff";
 import { sampleWorkflows } from "@/data/sample/system-status";
 import {
   buildAlertMessage,
@@ -40,6 +51,7 @@ const TABLES = {
   REQUISITION_LOG: "Requisition_Log",
   CONTRACT_LINE_ITEMS: "Contract_Line_Items",
   PAYMENT_BATCH: "tblKFEvMbOobm9Y9X",
+  AR_LEDGER: "tblWg64KRT2VKycZt",
 } as const;
 
 const N8N_BASE = process.env.NEXT_PUBLIC_N8N_WEBHOOK_BASE || "http://localhost:5678";
@@ -125,19 +137,64 @@ function mapPO(rec: AirtableRawRecord): PurchaseOrder {
 
 function mapPaymentBatch(rec: AirtableRawRecord): PaymentBatch {
   const f = rec.fields;
+  const invoices = safeParseJSON<BatchInvoice[]>(f.invoices_json, []);
+  const batchDate = str(f.batch_date);
+  const dueCutoff = str(f.due_date_cutoff);
   return {
     _recordId: rec.id,
     batch_id: str(f.batch_id) || rec.id,
     vendor_id: str(f.vendor_id) || str(f.vendor_name),
-    vendor_name: str(f.vendor_name),
-    invoice_count: num(f.invoice_count),
+    vendor_name: str(f.vendor_name) || "Weekly payables run",
+    invoice_count: num(f.invoice_count) || invoices.length,
     total_amount: num(f.total_amount),
     status: (str(f.status) || "Pending Approval") as PaymentBatch["status"],
-    created_date: str(f.created_date) || new Date().toISOString(),
-    due_date: str(f.due_date),
+    created_date: batchDate || str(f.created_date) || new Date().toISOString(),
+    batch_date: batchDate,
+    due_date: dueCutoff || str(f.due_date),
+    due_date_cutoff: dueCutoff,
     approved_by: str(f.approved_by) || null,
     approval_date: str(f.approval_date) || null,
+    payment_method: str(f.payment_method) || "Bank Transfer",
+    invoices,
     ai_note: str(f.ai_note) || str(f.notes),
+    notes: str(f.notes),
+  };
+}
+
+function mapARLedger(rec: AirtableRawRecord): ARLedgerEntry {
+  const f = rec.fields;
+  const dueDate = str(f.due_date);
+  let daysOverdue = 0;
+  if (dueDate) {
+    const due = new Date(dueDate).getTime();
+    const now = Date.now();
+    daysOverdue = Math.max(0, Math.floor((now - due) / (1000 * 60 * 60 * 24)));
+  }
+  const amount = num(f.amount);
+  const paid = num(f.amount_paid);
+  return {
+    _recordId: rec.id,
+    ar_id: str(f.ar_id) || rec.id,
+    client_name: str(f.client_name),
+    client_email: str(f.client_email),
+    client_type: str(f.client_type),
+    invoice_number: str(f.invoice_number),
+    invoice_date: str(f.invoice_date),
+    due_date: dueDate,
+    amount,
+    amount_paid: paid,
+    balance: num(f.balance) || Math.max(0, amount - paid),
+    status: str(f.status) || "Open",
+    payment_terms: str(f.payment_terms),
+    po_numbers: str(f.po_numbers),
+    days_overdue: daysOverdue,
+    alert_30_sent: !!f.alert_30_sent,
+    alert_60_sent: !!f.alert_60_sent,
+    alert_90_sent: !!f.alert_90_sent,
+    last_contact_date: str(f.last_contact_date) || undefined,
+    department: str(f.department),
+    gl_account: str(f.gl_account),
+    notes: str(f.notes) || undefined,
   };
 }
 
@@ -339,6 +396,23 @@ export class AirtableDataService implements DataService {
     }
   }
 
+  async getARLedger(filters?: { status?: string; minDaysOverdue?: number }): Promise<ARLedgerEntry[]> {
+    const params: Record<string, string> = {};
+    if (filters?.status && filters.status !== "All") {
+      params["filterByFormula"] = `{status} = "${filters.status}"`;
+    }
+    try {
+      const records = await fetchTable(TABLES.AR_LEDGER, params);
+      let entries = records.map(mapARLedger);
+      if (typeof filters?.minDaysOverdue === "number") {
+        entries = entries.filter((e) => e.days_overdue >= filters.minDaysOverdue!);
+      }
+      return entries;
+    } catch {
+      return [];
+    }
+  }
+
   async updatePurchaseOrderStatus(poNumber: string, status: string, approvedBy?: string): Promise<void> {
     const po = await this.getPurchaseOrderByNumber(poNumber);
     if (!po?._recordId) throw new Error(`PO ${poNumber} not found`);
@@ -376,6 +450,42 @@ export class AirtableDataService implements DataService {
     } catch {
       // n8n might not be running — approval still recorded in Airtable
     }
+  }
+
+  async modifyPurchaseOrder(params: ModifyPurchaseOrderInput): Promise<ModifyPurchaseOrderResult> {
+    const { po_number, record_id, modified_items, original_items, modified_by } = params;
+    const new_total = totalFor(modified_items);
+    const diff_summary = buildBcsDiffSummary(original_items, modified_items);
+
+    try {
+      await patchRecord(TABLES.PO_LOG, record_id, {
+        items_json: JSON.stringify(modified_items),
+        total_amount: new_total,
+      });
+    } catch (err) {
+      return {
+        success: false,
+        new_total,
+        diff_summary,
+        error: err instanceof Error ? err.message : "Airtable PATCH failed",
+      };
+    }
+
+    try {
+      await createRecord(TABLES.AUDIT_TRAIL, {
+        event_type: "PO_MODIFIED",
+        actor: modified_by,
+        reference_id: po_number,
+        timestamp: new Date().toISOString(),
+        details: diff_summary,
+        amount: new_total,
+      });
+    } catch {
+      // Audit gap is recoverable — surface success on the modify itself.
+      // The PATCH already happened; the user can still proceed to approve.
+    }
+
+    return { success: true, new_total, diff_summary };
   }
 
   async rejectPO(poNumber: string, reason?: string): Promise<void> {
@@ -614,41 +724,92 @@ export class AirtableDataService implements DataService {
   }
 
   async submitRequisition(data: RequisitionInput): Promise<{ requisition_id: string }> {
-    const reqId = `REQ-${Date.now()}`;
+    const reqId = data.requisition_id ?? `REQ-${Date.now()}`;
+    const submittedAt = new Date().toISOString();
 
-    // 1. Create in Airtable
-    await createRecord(TABLES.REQUISITION_LOG, {
-      requisition_id: reqId,
-      department: data.department,
-      item_name: data.item_name,
-      quantity_requested: data.quantity_requested,
-      unit: data.unit,
-      urgency: data.urgency,
-      requester: data.requester,
-      justification: data.justification || "",
-      status: "Submitted",
-      submitted_at: new Date().toISOString(),
+    // WF03 owns the requisition lifecycle: it validates the payload, writes the
+    // Requisition_Log row, calls WF04 for AI routing, and posts to Slack. The
+    // frontend never writes to Airtable directly — bypassing WF03 would skip the
+    // whole automation chain.
+    const res = await fetch(`${N8N_BASE}/webhook/requisition`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requisition_id: reqId,
+        department: data.department,
+        item_name: data.item_name,
+        item_id: data.item_id,
+        quantity_requested: data.quantity_requested,
+        unit: data.unit,
+        urgency: data.urgency,
+        requester: data.requester,
+        justification: data.justification,
+        ai_suggested_quantity: data.ai_suggested_quantity,
+        ai_suggestion_accepted: data.ai_suggestion_accepted,
+        submitted_at: submittedAt,
+      }),
     });
-
-    // 2. Call n8n WF03 webhook
-    try {
-      await fetch(`${N8N_BASE}/webhook/requisition`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          department: data.department,
-          item_name: data.item_name,
-          quantity_requested: data.quantity_requested,
-          unit: data.unit,
-          urgency: data.urgency,
-          requester: data.requester,
-          justification: data.justification,
-        }),
-      });
-    } catch {
-      // n8n may be offline
+    if (!res.ok) {
+      throw new Error(`Requisition webhook returned ${res.status}`);
     }
 
     return { requisition_id: reqId };
+  }
+
+  async checkAutoReorderStatus(itemId: string): Promise<AutoReorderStatus> {
+    const inventory = await this.getInventory();
+    const item = inventory.find((i) => i.item_id === itemId);
+    if (!item) return { covered: false };
+
+    const recentPOs = await this.getPurchaseOrders();
+    const pendingAuto = recentPOs.find(
+      (po) =>
+        po.source === "Auto-Reorder" &&
+        (po.status === "Pending Approval" || po.status === "Approved" || po.status === "Sent to Vendor") &&
+        po.items.some((line) => line.item_name === item.item_name)
+    );
+
+    if (pendingAuto) {
+      const matchingLine = pendingAuto.items.find((l) => l.item_name === item.item_name);
+      return {
+        covered: true,
+        scheduled_date: pendingAuto.date_created,
+        scheduled_quantity: matchingLine?.quantity,
+        reasoning: `Auto-narudžba ${pendingAuto.po_number} (${pendingAuto.vendor_name}) već pokriva ovaj artikal.`,
+      };
+    }
+
+    if (item.current_stock <= item.reorder_point) {
+      return {
+        covered: true,
+        scheduled_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        scheduled_quantity: Math.max(item.par_level - item.current_stock, item.reorder_quantity),
+        reasoning: `Stanje (${item.current_stock} ${item.unit_of_measure}) ispod reorder točke ${item.reorder_point}. WF08 će ovo pokrenuti pri sljedećem 6:00 skeniranju.`,
+      };
+    }
+
+    return { covered: false };
+  }
+
+  async getDepartmentBudget(department: string): Promise<DepartmentBudget> {
+    const [glMappings, allPOs] = await Promise.all([
+      this.getGLMappings(),
+      this.getPurchaseOrders(),
+    ]);
+    const monthly_budget = glMappings
+      .filter((g) => g.department === department)
+      .reduce((sum, g) => sum + g.budget_monthly, 0);
+    const monthPrefix = new Date().toISOString().slice(0, 7);
+    const spent_mtd = allPOs
+      .filter(
+        (po) =>
+          po.department === department &&
+          po.status !== "Cancelled" &&
+          po.date_created.startsWith(monthPrefix)
+      )
+      .reduce((sum, po) => sum + po.total_amount, 0);
+    const remaining = Math.max(0, monthly_budget - spent_mtd);
+    const pct_used = monthly_budget > 0 ? (spent_mtd / monthly_budget) * 100 : 0;
+    return { department, monthly_budget, spent_mtd, remaining, pct_used };
   }
 }

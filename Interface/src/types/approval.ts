@@ -1,3 +1,5 @@
+import type { PaymentBatch, PurchaseOrder } from "./index";
+
 export type ApprovalType = "po" | "batch";
 export type ApprovalAction = "approve" | "reject";
 
@@ -12,6 +14,7 @@ export interface ApprovalItem {
   ai_note: string;
   invoice_count?: number;
   due_date?: string;
+  raw?: PaymentBatch | PurchaseOrder;
 }
 
 export interface ApprovalRequest {

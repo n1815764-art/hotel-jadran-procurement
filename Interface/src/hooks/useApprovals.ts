@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DataService } from "@/services/data-service";
 import { fetchPendingApprovals } from "@/services/data-service-extensions";
-import { useApprovalStore } from "@/store/approval-store";
+import { useApprovalStore, type EditState } from "@/store/approval-store";
 import type { ApprovalItem } from "@/types/approval";
 
 const POLL_INTERVAL_MS = 30_000;
@@ -12,6 +12,7 @@ export interface UseApprovalsResult {
   items: ApprovalItem[];
   inFlight: Set<string>;
   errors: Record<string, string>;
+  editStates: Record<string, EditState>;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -22,6 +23,7 @@ export function useApprovals(dataService: DataService): UseApprovalsResult {
   const items = useApprovalStore((s) => s.items);
   const inFlight = useApprovalStore((s) => s.inFlight);
   const errors = useApprovalStore((s) => s.errors);
+  const editStates = useApprovalStore((s) => s.editStates);
   const setItems = useApprovalStore((s) => s.setItems);
   const clearError = useApprovalStore((s) => s.clearError);
 
@@ -53,5 +55,5 @@ export function useApprovals(dataService: DataService): UseApprovalsResult {
     };
   }, [refresh]);
 
-  return { items, inFlight, errors, loading, error, refresh, clearError };
+  return { items, inFlight, errors, editStates, loading, error, refresh, clearError };
 }

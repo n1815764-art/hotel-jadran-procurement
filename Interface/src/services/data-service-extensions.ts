@@ -13,6 +13,7 @@ export function poToApprovalItem(po: PurchaseOrder): ApprovalItem | null {
     department: po.department,
     created_date: po.date_created,
     ai_note: po.ai_note ?? "",
+    raw: po,
   };
 }
 
@@ -27,7 +28,8 @@ export function batchToApprovalItem(batch: PaymentBatch): ApprovalItem | null {
     created_date: batch.created_date,
     ai_note: batch.ai_note ?? "",
     invoice_count: batch.invoice_count,
-    due_date: batch.due_date,
+    due_date: batch.due_date_cutoff || batch.due_date,
+    raw: batch,
   };
 }
 

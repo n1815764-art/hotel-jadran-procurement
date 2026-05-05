@@ -4,10 +4,12 @@ import { useState } from "react";
 import { Inbox, ChevronDown, ChevronUp } from "lucide-react";
 import type { DataService } from "@/services/data-service";
 import type { ApprovalItem } from "@/types/approval";
+import type { POLineItem } from "@/types";
 import { useApprovals } from "@/hooks/useApprovals";
 import { useApprovalStore } from "@/store/approval-store";
 import { useToastStore } from "@/store/toast-store";
 import { ApprovalCard } from "./ApprovalCard";
+import { PaymentBatchCard } from "./PaymentBatchCard";
 
 interface ApprovalQueueProps {
   dataService: DataService;
@@ -22,8 +24,13 @@ export function ApprovalQueue({
   maxVisible = 5,
   onViewDetails,
 }: ApprovalQueueProps) {
-  const { items, inFlight, errors, loading, error, clearError } = useApprovals(dataService);
+  const { items, inFlight, errors, editStates, loading, error, clearError } =
+    useApprovals(dataService);
   const submit = useApprovalStore((s) => s.submit);
+  const startEdit = useApprovalStore((s) => s.startEdit);
+  const cancelEdit = useApprovalStore((s) => s.cancelEdit);
+  const updateEditedQuantity = useApprovalStore((s) => s.updateEditedQuantity);
+  const submitEditAndApprove = useApprovalStore((s) => s.submitEditAndApprove);
   const pushToast = useToastStore((s) => s.push);
   const [expanded, setExpanded] = useState(false);
 
@@ -77,6 +84,55 @@ export function ApprovalQueue({
     }
   };
 
+  const handleStartEdit = (item: ApprovalItem, originalItems: POLineItem[]) => {
+    startEdit(item.record_id, originalItems);
+  };
+
+  const handleCancelEdit = (item: ApprovalItem) => {
+    cancelEdit(item.record_id);
+  };
+
+  const handleChangeQuantity = (
+    item: ApprovalItem,
+    itemIndex: number,
+    quantity: number
+  ) => {
+    updateEditedQuantity(item.record_id, itemIndex, quantity);
+  };
+
+  const handleSaveAndApprove = async (
+    item: ApprovalItem,
+    modifiedItems: POLineItem[],
+    originalItems: POLineItem[]
+  ) => {
+    const ok = await submitEditAndApprove({
+      payload: {
+        type: item.type,
+        record_id: item.record_id,
+        reference_id: item.reference_id,
+        action: "approve",
+        approved_by: currentUser,
+      },
+      modifiedItems,
+      originalItems,
+      modifiedBy: currentUser,
+      dataService,
+    });
+    if (ok) {
+      pushToast({
+        severity: "approval",
+        title: "Modified & approved",
+        message: `${item.reference_id} approved with quantity adjustments.`,
+      });
+    } else {
+      pushToast({
+        severity: "critical",
+        title: "Edit & approve failed",
+        message: `${item.reference_id} could not be processed. See card for details.`,
+      });
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -114,19 +170,32 @@ export function ApprovalQueue({
       {!loading && items.length > 0 && (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-            {visible.map((item) => (
-              <ApprovalCard
-                key={item.record_id}
-                item={item}
-                currentUser={currentUser}
-                inFlight={inFlight.has(item.record_id)}
-                error={errors[item.record_id]}
-                onApprove={handleApprove}
-                onReject={handleReject}
-                onViewDetails={onViewDetails}
-                onDismissError={clearError}
-              />
-            ))}
+            {visible.map((item) => {
+              const common = {
+                item,
+                currentUser,
+                inFlight: inFlight.has(item.record_id),
+                error: errors[item.record_id],
+                onApprove: handleApprove,
+                onReject: handleReject,
+                onViewDetails,
+                onDismissError: clearError,
+              };
+              if (item.type === "batch") {
+                return <PaymentBatchCard key={item.record_id} {...common} />;
+              }
+              return (
+                <ApprovalCard
+                  key={item.record_id}
+                  {...common}
+                  editState={editStates[item.record_id]}
+                  onStartEdit={handleStartEdit}
+                  onCancelEdit={handleCancelEdit}
+                  onChangeQuantity={handleChangeQuantity}
+                  onSaveAndApprove={handleSaveAndApprove}
+                />
+              );
+            })}
           </div>
 
           {hiddenCount > 0 && (

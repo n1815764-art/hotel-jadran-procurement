@@ -8,9 +8,15 @@ import { formatEUR } from "./utils";
 // (WF06/WF07/WF16/…). Those workflows write BCS (Bosnian/Croatian/Serbian);
 // keep all user-visible strings here in BCS to match.
 
+// Severity mapping — single source of truth for alert styling.
+//   critical → disputes, negative stock, system errors
+//   warning  → price deviations, anomalies, blocked reorders, rejections
+//   approval → items awaiting action (new POs, batches pending)
+//   info     → completed events (reports generated, receiving confirmed)
 export const EVENT_SEVERITY: Record<AuditEventType, Alert["severity"]> = {
-  PO_CREATED: "info",
+  PO_CREATED: "approval",
   PO_APPROVED: "approval",
+  PO_MODIFIED: "info",
   PO_REJECTED: "warning",
   PAYMENT_BATCH_APPROVED: "approval",
   PAYMENT_BATCH_REJECTED: "warning",
@@ -20,7 +26,7 @@ export const EVENT_SEVERITY: Record<AuditEventType, Alert["severity"]> = {
   REORDER_BLOCKED: "warning",
   ANOMALY_DETECTED: "warning",
   REPORT_GENERATED: "info",
-  RECEIVING_CONFIRMED: "approval",
+  RECEIVING_CONFIRMED: "info",
 };
 
 // Workflow registry — keep in sync with src/data/sample/system-status.ts.
@@ -29,6 +35,7 @@ export const EVENT_SEVERITY: Record<AuditEventType, Alert["severity"]> = {
 export const EVENT_TO_WORKFLOW: Record<AuditEventType, string> = {
   PO_CREATED: "WF-06",
   PO_APPROVED: "WF-06",
+  PO_MODIFIED: "WF-16",
   PO_REJECTED: "WF-06",
   PAYMENT_BATCH_APPROVED: "WF-16",
   PAYMENT_BATCH_REJECTED: "WF-16",
@@ -45,6 +52,7 @@ export const EVENT_TO_WORKFLOW: Record<AuditEventType, string> = {
 export const EVENT_TITLE: Record<AuditEventType, string> = {
   PO_CREATED: "Nova narud\u017Ebenica",
   PO_APPROVED: "PO odobren",
+  PO_MODIFIED: "PO modificirana",
   PO_REJECTED: "PO odbijen",
   PAYMENT_BATCH_APPROVED: "Paket pla\u0107anja odobren",
   PAYMENT_BATCH_REJECTED: "Paket pla\u0107anja odbijen",
@@ -108,6 +116,15 @@ function fallbackMessage(entry: AuditEntry): string {
       const head = refId ? `PO ${refId} odobren` : "PO odobren";
       const by = actor ? `od strane ${actor}` : null;
       const suffix = amt ? `\u2014 ${amt}` : null;
+      return join([head, by, suffix], " ") || humanize(eventType);
+    }
+    case "PO_MODIFIED": {
+      // The diff string is composed by modifyPurchaseOrder() and stored verbatim
+      // in audit details. If details is populated, buildAlertMessage returns it
+      // before this fallback runs; this branch handles the empty-details edge.
+      const head = refId ? `PO ${refId} modificirana` : "PO modificirana";
+      const by = actor ? `od strane ${actor}` : null;
+      const suffix = amt ? `— novi iznos ${amt}` : null;
       return join([head, by, suffix], " ") || humanize(eventType);
     }
     case "PO_REJECTED": {

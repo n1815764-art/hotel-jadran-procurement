@@ -12,12 +12,14 @@ import {
   BarChart3,
   ScrollText,
   Settings,
+  Wallet,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
   { href: "/invoices", label: "Invoices", icon: FileText },
+  { href: "/ar-aging", label: "AR Aging", icon: Wallet },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/vendors", label: "Vendors", icon: Users },
   { href: "/reports", label: "Reports", icon: BarChart3 },
